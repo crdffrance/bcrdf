@@ -1,0 +1,184 @@
+name: Build BCRDF
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ published ]
+
+env:
+  GO_VERSION: '1.21'
+  CGO_ENABLED: 0
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run linting
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          golangci-lint run
+
+  build:
+    name: Build for ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            target: linux-x64
+          - os: linux
+            arch: arm64
+            target: linux-arm64
+          - os: linux
+            arch: 386
+            target: linux-x32
+          - os: windows
+            arch: amd64
+            target: windows-x64
+          - os: windows
+            arch: arm64
+            target: windows-arm64
+          - os: windows
+            arch: 386
+            target: windows-x32
+          - os: darwin
+            arch: amd64
+            target: darwin-x64
+          - os: darwin
+            arch: arm64
+            target: darwin-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binary
+        run: |
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build \
+            -ldflags "-X main.Version=${{ steps.version.outputs.version }}-${{ matrix.target }}" \
+            -o dist/bcrdf-${{ matrix.target }} \
+            cmd/bcrdf/main.go
+
+      - name: Create archive
+        run: |
+          cd dist
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip bcrdf-${{ matrix.target }}.zip bcrdf-${{ matrix.target }}
+          else
+            tar -czf bcrdf-${{ matrix.target }}.tar.gz bcrdf-${{ matrix.target }}
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: bcrdf-${{ matrix.target }}
+          path: dist/bcrdf-${{ matrix.target }}.*
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create release assets
+        run: |
+          mkdir -p release-assets
+          find . -name "*.zip" -o -name "*.tar.gz" | while read file; do
+            cp "$file" release-assets/
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          body: |
+            ## BCRDF v${{ github.event.release.tag_name }}
+            
+            ### 📦 Binaries disponibles
+            
+            **Linux:**
+            - `bcrdf-linux-x64.tar.gz` - Linux x64
+            - `bcrdf-linux-arm64.tar.gz` - Linux ARM64
+            - `bcrdf-linux-x32.tar.gz` - Linux x32
+            
+            **Windows:**
+            - `bcrdf-windows-x64.zip` - Windows x64
+            - `bcrdf-windows-arm64.zip` - Windows ARM64
+            - `bcrdf-windows-x32.zip` - Windows x32
+            
+            **macOS:**
+            - `bcrdf-darwin-x64.tar.gz` - macOS x64
+            - `bcrdf-darwin-arm64.tar.gz` - macOS ARM64
+            
+            ### 🚀 Installation
+            
+            ```bash
+            # Linux/macOS
+            tar -xzf bcrdf-linux-x64.tar.gz
+            sudo mv bcrdf /usr/local/bin/
+            
+            # Windows
+            # Extraire le zip et ajouter au PATH
+            ```
+            
+            ### 📋 Changelog
+            
+            Consultez les [commits](https://github.com/${{ github.repository }}/compare/${{ github.event.release.tag_name }}...main) pour les détails.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

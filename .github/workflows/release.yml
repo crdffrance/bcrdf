@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build all architectures
+        run: |
+          # Créer le répertoire de sortie
+          mkdir -p dist
+          
+          # Extraire la version du tag
+          VERSION=${GITHUB_REF#refs/tags/}
+          
+          # Architectures à compiler
+          declare -a targets=(
+            "linux:amd64:linux-x64"
+            "linux:arm64:linux-arm64"
+            "linux:386:linux-x32"
+            "windows:amd64:windows-x64"
+            "windows:arm64:windows-arm64"
+            "windows:386:windows-x32"
+            "darwin:amd64:darwin-x64"
+            "darwin:arm64:darwin-arm64"
+          )
+          
+          # Compiler pour chaque architecture
+          for target in "${targets[@]}"; do
+            IFS=':' read -r os arch name <<< "$target"
+            
+            echo "📦 Compilation pour $name..."
+            
+            # Variables d'environnement pour cross-compilation
+            export GOOS=$os
+            export GOARCH=$arch
+            export CGO_ENABLED=0
+            
+            # Compilation
+            go build \
+              -ldflags "-X main.Version=$VERSION-$name" \
+              -o "dist/bcrdf-$name" \
+              cmd/bcrdf/main.go
+            
+            # Créer l'archive
+            cd dist
+            if [ "$os" = "windows" ]; then
+              zip "bcrdf-$name.zip" "bcrdf-$name"
+            else
+              tar -czf "bcrdf-$name.tar.gz" "bcrdf-$name"
+            fi
+            cd ..
+            
+            # Nettoyer le binaire
+            rm "dist/bcrdf-$name"
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          body: |
+            ## 🎉 BCRDF ${{ github.ref_name }}
+            
+            ### 📦 Binaries disponibles
+            
+            **Linux:**
+            - `bcrdf-linux-x64.tar.gz` - Linux x64
+            - `bcrdf-linux-arm64.tar.gz` - Linux ARM64
+            - `bcrdf-linux-x32.tar.gz` - Linux x32
+            
+            **Windows:**
+            - `bcrdf-windows-x64.zip` - Windows x64
+            - `bcrdf-windows-arm64.zip` - Windows ARM64
+            - `bcrdf-windows-x32.zip` - Windows x32
+            
+            **macOS:**
+            - `bcrdf-darwin-x64.tar.gz` - macOS x64
+            - `bcrdf-darwin-arm64.tar.gz` - macOS ARM64
+            
+            ### 🚀 Installation
+            
+            ```bash
+            # Linux/macOS
+            tar -xzf bcrdf-linux-x64.tar.gz
+            sudo mv bcrdf /usr/local/bin/
+            
+            # Windows
+            # Extraire le zip et ajouter au PATH
+            ```
+            
+            ### 🔐 Fonctionnalités
+            
+            - **Chiffrement multi-algorithmes** : AES-256-GCM et XChaCha20-Poly1305
+            - **Sauvegarde index-based** : Efficacité maximale
+            - **Compression GZIP** : Niveaux configurables
+            - **Stockage S3** : Compatible tous providers
+            - **Performance optimale** : Parallélisme et streaming
+            
+            ### 📚 Documentation
+            
+            - [Guide d'installation](https://github.com/${{ github.repository }}#installation)
+            - [Exemples d'utilisation](https://github.com/${{ github.repository }}/blob/main/docs/EXAMPLES.md)
+            - [Architecture](https://github.com/${{ github.repository }}/blob/main/docs/ARCHITECTURE.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

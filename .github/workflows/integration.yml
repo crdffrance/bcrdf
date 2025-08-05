@@ -1,0 +1,112 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build binary
+        run: |
+          go build -o bcrdf cmd/bcrdf/main.go
+
+      - name: Create test data
+        run: |
+          mkdir -p test-data
+          echo "Test file 1" > test-data/file1.txt
+          echo "Test file 2" > test-data/file2.txt
+          mkdir -p test-data/subdir
+          echo "Test file 3" > test-data/subdir/file3.txt
+
+      - name: Create test config
+        run: |
+          cat > test-config.yaml << EOF
+          storage:
+            type: "s3"
+            bucket: "bcrdf-test"
+            region: "us-east-1"
+            endpoint: "http://localhost:9000"
+            access_key: "test-access-key"
+            secret_key: "test-secret-key"
+
+          backup:
+            source_path: "./test-data"
+            encryption_key: "01234567890123456789012345678901"
+            encryption_algo: "aes-256-gcm"
+            compression_level: 3
+            max_workers: 2
+
+          retention:
+            days: 7
+            max_backups: 5
+          EOF
+
+      - name: Start MinIO (S3-compatible)
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e "MINIO_ROOT_USER=test-access-key" \
+            -e "MINIO_ROOT_PASSWORD=test-secret-key" \
+            minio/minio server /data --console-address ":9001"
+
+      - name: Wait for MinIO
+        run: |
+          timeout 30 bash -c 'until curl -s http://localhost:9000/minio/health/live; do sleep 1; done'
+
+      - name: Create test bucket
+        run: |
+          docker exec minio mkdir -p /data/bcrdf-test
+
+      - name: Run integration tests
+        run: |
+          # Test info command
+          ./bcrdf info
+          
+          # Test backup
+          ./bcrdf backup -n test-backup -s ./test-data -c test-config.yaml -v
+          
+          # Test list
+          ./bcrdf list -c test-config.yaml -v
+          
+          # Test restore
+          mkdir -p restored-data
+          ./bcrdf restore --backup-id test-backup-$(date +%Y%m%d)-$(date +%H%M%S) --destination ./restored-data -c test-config.yaml -v
+          
+          # Verify restored data
+          diff -r test-data restored-data/test-data
+          
+          echo "✅ Integration tests passed"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true 

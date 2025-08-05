@@ -1,0 +1,21 @@
+# Configuration BCRDF - Système de sauvegarde index-based
+# Copiez ce fichier vers config.yaml et configurez vos paramètres
+
+storage:
+  type: "s3"
+  bucket: "mon-bucket-sauvegarde"
+  region: "eu-west-3"
+  endpoint: "https://s3.eu-west-3.amazonaws.com"
+  access_key: "VOTRE_CLE_ACCESS"
+  secret_key: "VOTRE_CLE_SECRETE"
+
+backup:
+  source_path: "/chemin/vers/sauvegarde"
+  encryption_key: "VOTRE_CLE_CHIFFREMENT_32_BYTES"
+  encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
+  compression_level: 3  # Niveau GZIP (1-9)
+  max_workers: 10  # Nombre de workers parallèles
+
+retention:
+  days: 30  # Durée de rétention en jours
+  max_backups: 10  # Nombre maximum de sauvegardes 

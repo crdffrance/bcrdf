@@ -3,6 +3,8 @@ name: Build BCRDF
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   release:
@@ -104,6 +106,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           else
             echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
@@ -150,11 +154,14 @@ jobs:
           done
 
       - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
+          tag_name: ${{ github.ref_name }}
+          name: BCRDF ${{ github.ref_name }}
           body: |
-            ## BCRDF v${{ github.event.release.tag_name }}
+            ## BCRDF ${{ github.ref_name }}
             
             ### 📦 Available Binaries
             
@@ -185,6 +192,8 @@ jobs:
             
             ### 📋 Changelog
             
-            See [commits](https://github.com/${{ github.repository }}/compare/${{ github.event.release.tag_name }}...main) for details.
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

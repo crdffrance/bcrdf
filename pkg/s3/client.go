@@ -52,7 +52,7 @@ func NewClient(accessKey, secretKey, region, endpoint, bucket string) (*Client, 
 	// Créer la session
 	sess, err := session.NewSession(config)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création de la session AWS: %w", err)
+		return nil, fmt.Errorf("error creating AWS session: %w", err)
 	}
 
 	// Créer le client S3
@@ -90,7 +90,7 @@ func (c *Client) Upload(key string, data []byte) error {
 	// Effectuer l'upload
 	_, err := c.uploader.Upload(params)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'upload vers S3: %w", err)
+		return fmt.Errorf("error during l'upload vers S3: %w", err)
 	}
 
 	utils.Debug("Upload successful: %s/%s", c.bucket, key)
@@ -142,7 +142,7 @@ func (c *Client) ListObjects(prefix string) ([]string, error) {
 			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
 			return keys, nil
 		}
-		return nil, fmt.Errorf("erreur lors de la liste des objets S3: %w", err)
+		return nil, fmt.Errorf("error during la liste des objets S3: %w", err)
 	}
 
 	// Extraire les clés
@@ -179,7 +179,7 @@ func (c *Client) ListObjectsDetailed(prefix string) ([]ObjectInfo, error) {
 			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
 			return objects, nil
 		}
-		return nil, fmt.Errorf("erreur lors de la liste des objets S3: %w", err)
+		return nil, fmt.Errorf("error during la liste des objets S3: %w", err)
 	}
 
 	// Extraire les informations des objets
@@ -215,7 +215,7 @@ func (c *Client) DeleteObject(key string) error {
 	// Effectuer la suppression
 	_, err := c.s3Client.DeleteObject(params)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la suppression d'objet S3: %w", err)
+		return fmt.Errorf("error during la suppression d'objet S3: %w", err)
 	}
 
 	utils.Debug("Deletion successful: %s/%s", c.bucket, key)
@@ -239,7 +239,7 @@ func (c *Client) Exists(key string) (bool, error) {
 		if isNotFoundError(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("erreur lors de la vérification d'existence: %w", err)
+		return false, fmt.Errorf("error checking existence: %w", err)
 	}
 
 	return true, nil

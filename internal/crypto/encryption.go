@@ -32,19 +32,19 @@ func (e *Encryptor) Encrypt(data []byte) ([]byte, error) {
 	// Créer un nouveau cipher AES
 	block, err := aes.NewCipher(e.key)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du cipher AES: %w", err)
+		return nil, fmt.Errorf("error creating AES cipher: %w", err)
 	}
 
 	// Créer un GCM cipher
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du GCM: %w", err)
+		return nil, fmt.Errorf("error creating GCM: %w", err)
 	}
 
 	// Créer un nonce aléatoire
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("erreur lors de la génération du nonce: %w", err)
+		return nil, fmt.Errorf("error generating nonce: %w", err)
 	}
 
 	// Chiffrer les données
@@ -59,13 +59,13 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	// Créer un nouveau cipher AES
 	block, err := aes.NewCipher(e.key)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du cipher AES: %w", err)
+		return nil, fmt.Errorf("error creating AES cipher: %w", err)
 	}
 
 	// Créer un GCM cipher
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du GCM: %w", err)
+		return nil, fmt.Errorf("error creating GCM: %w", err)
 	}
 
 	// Extraire le nonce
@@ -79,7 +79,7 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	// Déchiffrer les données
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du déchiffrement: %w", err)
+		return nil, fmt.Errorf("error decrypting: %w", err)
 	}
 
 	utils.Debug("Data decrypted: %d bytes -> %d bytes", len(ciphertext), len(plaintext))
@@ -93,7 +93,7 @@ func (e *Encryptor) EncryptFile(inputPath, outputPath string) error {
 	// Lire le fichier source
 	data, err := utils.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture du fichier: %w", err)
+		return fmt.Errorf("error reading file: %w", err)
 	}
 
 	// Chiffrer les données
@@ -102,9 +102,9 @@ func (e *Encryptor) EncryptFile(inputPath, outputPath string) error {
 		return fmt.Errorf("erreur lors du chiffrement: %w", err)
 	}
 
-	// Écrire le fichier chiffré
+	// Écrire le fichier encrypted
 	if err := utils.WriteFile(outputPath, encryptedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier chiffré: %w", err)
+		return fmt.Errorf("error writing file encrypted: %w", err)
 	}
 
 	utils.Info("Encrypted file saved: %s", outputPath)
@@ -115,21 +115,21 @@ func (e *Encryptor) EncryptFile(inputPath, outputPath string) error {
 func (e *Encryptor) DecryptFile(inputPath, outputPath string) error {
 	utils.Info("Decrypting file: %s", inputPath)
 
-	// Lire le fichier chiffré
+	// Lire le fichier encrypted
 	encryptedData, err := utils.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture du fichier chiffré: %w", err)
+		return fmt.Errorf("error reading encrypted file: %w", err)
 	}
 
 	// Déchiffrer les données
 	decryptedData, err := e.Decrypt(encryptedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors du déchiffrement: %w", err)
+		return fmt.Errorf("error decrypting: %w", err)
 	}
 
-	// Écrire le fichier déchiffré
+	// Écrire le fichier decrypted
 	if err := utils.WriteFile(outputPath, decryptedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier déchiffré: %w", err)
+		return fmt.Errorf("error writing file decrypted: %w", err)
 	}
 
 	utils.Info("Decrypted file saved: %s", outputPath)
@@ -141,7 +141,7 @@ func (e *Encryptor) EncryptStream(input io.Reader, output io.Writer) error {
 	// Lire toutes les données
 	data, err := io.ReadAll(input)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture des données: %w", err)
+		return fmt.Errorf("error reading data: %w", err)
 	}
 
 	// Chiffrer les données
@@ -150,9 +150,9 @@ func (e *Encryptor) EncryptStream(input io.Reader, output io.Writer) error {
 		return fmt.Errorf("erreur lors du chiffrement: %w", err)
 	}
 
-	// Écrire les données chiffrées
+	// Écrire les données encryptedes
 	if _, err := output.Write(encryptedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture des données chiffrées: %w", err)
+		return fmt.Errorf("error writing data encryptedes: %w", err)
 	}
 
 	return nil
@@ -160,21 +160,21 @@ func (e *Encryptor) EncryptStream(input io.Reader, output io.Writer) error {
 
 // DecryptStream déchiffre un flux de données
 func (e *Encryptor) DecryptStream(input io.Reader, output io.Writer) error {
-	// Lire toutes les données chiffrées
+	// Lire toutes les données encryptedes
 	encryptedData, err := io.ReadAll(input)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture des données chiffrées: %w", err)
+		return fmt.Errorf("error reading data encryptedes: %w", err)
 	}
 
 	// Déchiffrer les données
 	decryptedData, err := e.Decrypt(encryptedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors du déchiffrement: %w", err)
+		return fmt.Errorf("error decrypting: %w", err)
 	}
 
-	// Écrire les données déchiffrées
+	// Écrire les données decryptedes
 	if _, err := output.Write(decryptedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture des données déchiffrées: %w", err)
+		return fmt.Errorf("error writing data decryptedes: %w", err)
 	}
 
 	return nil
@@ -184,7 +184,7 @@ func (e *Encryptor) DecryptStream(input io.Reader, output io.Writer) error {
 func GenerateKey() (string, error) {
 	key := make([]byte, 32) // 256 bits
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return "", fmt.Errorf("erreur lors de la génération de la clé: %w", err)
+		return "", fmt.Errorf("error generating key: %w", err)
 	}
 
 	return hex.EncodeToString(key), nil
@@ -193,7 +193,7 @@ func GenerateKey() (string, error) {
 // ValidateKey valide une clé de chiffrement
 func ValidateKey(key string) error {
 	if len(key) < 16 {
-		return fmt.Errorf("la clé de chiffrement doit faire au moins 16 caractères")
+		return fmt.Errorf("encryption key must be at least 16 characters")
 	}
 	return nil
 }

@@ -42,7 +42,7 @@ func (v *ConfigValidator) ValidateAll(verbose bool) error {
 
 	// Testing storage connectivity
 	if err := v.testStorageConnectivity(verbose); err != nil {
-		return fmt.Errorf("erreur de connectivité du stockage: %w", err)
+		return fmt.Errorf("storage connectivity error: %w", err)
 	}
 
 	if verbose {
@@ -69,7 +69,7 @@ func (v *ConfigValidator) validateStorage(verbose bool) error {
 	case "webdav":
 		return v.validateWebDAVStorage(storageConfig, verbose)
 	default:
-		return fmt.Errorf("type de stockage non supporté: %s", storageConfig.Type)
+		return fmt.Errorf("unsupported storage type: %s", storageConfig.Type)
 	}
 }
 
@@ -91,7 +91,7 @@ func (v *ConfigValidator) validateS3Storage(storageConfig struct {
 
 	// Vérifier la région
 	if storageConfig.Region == "" {
-		return fmt.Errorf("région requise pour S3")
+		return fmt.Errorf("region required for S3")
 	}
 
 	// Vérifier l'endpoint
@@ -104,11 +104,11 @@ func (v *ConfigValidator) validateS3Storage(storageConfig struct {
 
 	// Vérifier les clés d'accès
 	if storageConfig.AccessKey == "" {
-		return fmt.Errorf("clé d'accès requise pour S3")
+		return fmt.Errorf("access key required for S3")
 	}
 
 	if storageConfig.SecretKey == "" {
-		return fmt.Errorf("clé secrète requise pour S3")
+		return fmt.Errorf("secret key required for S3")
 	}
 
 	if verbose {
@@ -172,7 +172,7 @@ func (v *ConfigValidator) validateBackup(verbose bool) error {
 
 	// Vérifier la clé de chiffrement
 	if backup.EncryptionKey == "" {
-		return fmt.Errorf("clé de chiffrement requise")
+		return fmt.Errorf("encryption key required")
 	}
 
 	// Valider la clé selon l'algorithme
@@ -182,7 +182,7 @@ func (v *ConfigValidator) validateBackup(verbose bool) error {
 	}
 
 	if err := crypto.ValidateKeyV2(backup.EncryptionKey, algorithm); err != nil {
-		return fmt.Errorf("clé de chiffrement invalide: %w", err)
+		return fmt.Errorf("invalid encryption key: %w", err)
 	}
 
 	// Vérifier l'algorithme de chiffrement
@@ -190,12 +190,12 @@ func (v *ConfigValidator) validateBackup(verbose bool) error {
 	case crypto.AES256GCM, crypto.XChaCha20Poly1305:
 		// OK
 	default:
-		return fmt.Errorf("algorithme de chiffrement non supporté: %s", backup.EncryptionAlgo)
+		return fmt.Errorf("unsupported encryption algorithm: %s", backup.EncryptionAlgo)
 	}
 
 	// Vérifier le niveau de compression
 	if backup.CompressionLevel < 1 || backup.CompressionLevel > 9 {
-		return fmt.Errorf("niveau de compression invalide (1-9): %d", backup.CompressionLevel)
+		return fmt.Errorf("invalid compression level (1-9): %d", backup.CompressionLevel)
 	}
 
 	// Vérifier le nombre de workers
@@ -219,7 +219,7 @@ func (v *ConfigValidator) testStorageConnectivity(verbose bool) error {
 	// Créer le client de stockage
 	storageClient, err := storage.NewStorageClient(v.config)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création du client de stockage: %w", err)
+		return fmt.Errorf("error creating storage client: %w", err)
 	}
 
 	// Tester la connectivité
@@ -242,7 +242,7 @@ func (v *ConfigValidator) testStorageConnectivity(verbose bool) error {
 	testData := []byte("test de connectivité BCRDF")
 
 	if err := storageClient.Upload(testKey, testData); err != nil {
-		return fmt.Errorf("impossible d'écrire sur le stockage: %w", err)
+		return fmt.Errorf("unable to write to storage: %w", err)
 	}
 
 	// Vérifier qu'on peut le lire
@@ -274,7 +274,7 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 	// Générer une clé de chiffrement sécurisée
 	encryptionKey, err := crypto.GenerateKeyV2(crypto.AES256GCM)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la génération de la clé: %w", err)
+		return fmt.Errorf("error generating key: %w", err)
 	}
 
 	// Configuration par défaut
@@ -294,7 +294,7 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 		config.Storage.Username = "YOUR_USERNAME"
 		config.Storage.Password = "YOUR_PASSWORD"
 	default:
-		return fmt.Errorf("type de stockage non supporté: %s", storageType)
+		return fmt.Errorf("unsupported storage type: %s", storageType)
 	}
 
 	config.Backup.SourcePath = "/path/to/backup"
@@ -309,12 +309,12 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 
 	// Créer le répertoire parent si nécessaire
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire: %w", err)
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 
 	// Sauvegarder la configuration
 	if err := utils.WriteConfig(config, outputPath); err != nil {
-		return fmt.Errorf("erreur lors de la sauvegarde: %w", err)
+		return fmt.Errorf("error saving: %w", err)
 	}
 
 	return nil

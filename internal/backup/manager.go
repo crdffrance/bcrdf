@@ -48,7 +48,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 
 	// Initialiser les composants
 	if err := m.initializeComponents(); err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation: %w", err)
+		return fmt.Errorf("error during l'initialisation: %w", err)
 	}
 
 	// Vérifier que le chemin source existe
@@ -70,7 +70,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 	}
 	currentIndex, err := m.indexMgr.CreateIndexWithMode(sourcePath, backupID, checksumMode, verbose)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de l'index: %w", err)
+		return fmt.Errorf("error creating index: %w", err)
 	}
 
 	// Chercher la sauvegarde précédente pour comparaison
@@ -94,7 +94,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 		}
 		diff, err = m.indexMgr.CompareIndexes(currentIndex, previousIndex)
 		if err != nil {
-			return fmt.Errorf("erreur lors de la comparaison des index: %w", err)
+			return fmt.Errorf("error during la comparaison des index: %w", err)
 		}
 	} else {
 		// Première sauvegarde, tous les fichiers sont nouveaux
@@ -107,7 +107,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 
 	// Sauvegarder les fichiers modifiés/ajoutés
 	if err := m.backupFiles(diff.Added, diff.Modified, backupID, verbose); err != nil {
-		return fmt.Errorf("erreur lors de la sauvegarde des fichiers: %w", err)
+		return fmt.Errorf("error saving des fichiers: %w", err)
 	}
 
 	// Mettre à jour les métadonnées de l'index
@@ -119,7 +119,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 		utils.ProgressStep("Saving index...")
 	}
 	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
-		return fmt.Errorf("erreur lors de la sauvegarde de l'index: %w", err)
+		return fmt.Errorf("error saving de l'index: %w", err)
 	}
 
 	duration := time.Since(startTime)
@@ -143,7 +143,7 @@ func (m *Manager) DeleteBackup(backupID string) error {
 
 	// Initialiser les composants si nécessaire
 	if err := m.initializeComponents(); err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation des composants: %w", err)
+		return fmt.Errorf("error during l'initialisation des composants: %w", err)
 	}
 
 	// Charger l'index de la sauvegarde
@@ -154,12 +154,12 @@ func (m *Manager) DeleteBackup(backupID string) error {
 
 	// Supprimer les fichiers de données
 	if err := m.deleteBackupFiles(backupIndex); err != nil {
-		return fmt.Errorf("erreur lors de la suppression des fichiers: %w", err)
+		return fmt.Errorf("error during la suppression des fichiers: %w", err)
 	}
 
 	// Supprimer l'index
 	if err := m.deleteBackupIndex(backupID); err != nil {
-		return fmt.Errorf("erreur lors de la suppression de l'index: %w", err)
+		return fmt.Errorf("error during la suppression de l'index: %w", err)
 	}
 
 	utils.Info("✅ Backup deleted: %s", backupID)
@@ -188,21 +188,21 @@ func (m *Manager) initializeComponents() error {
 
 	encryptor, err := crypto.NewEncryptorV2(m.config.Backup.EncryptionKey, algorithm)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du chiffreur: %w", err)
+		return fmt.Errorf("error during l'initialisation du chiffreur: %w", err)
 	}
 	m.encryptor = encryptor
 
 	// Initialiser le compresseur
 	compressor, err := compression.NewCompressor(m.config.Backup.CompressionLevel)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du compresseur: %w", err)
+		return fmt.Errorf("error during l'initialisation du compresseur: %w", err)
 	}
 	m.compressor = compressor
 
 	// Initialiser le client de stockage
 	storageClient, err := storage.NewStorageClient(m.config)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
+		return fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
 	}
 	m.storageClient = storageClient
 
@@ -224,7 +224,7 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 	if m.storageClient == nil {
 		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
+			return nil, fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
 		}
 		m.storageClient = storageClient
 	}
@@ -333,7 +333,7 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 			defer func() { <-semaphore }() // Libérer le slot
 
 			if err := m.backupSingleFile(f, backupID); err != nil {
-				errors <- fmt.Errorf("erreur lors de la sauvegarde de %s: %w", f.Path, err)
+				errors <- fmt.Errorf("error saving de %s: %w", f.Path, err)
 			}
 
 			// Mettre à jour la progression
@@ -377,16 +377,16 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 	// Lire le fichier source
 	data, err := utils.ReadFile(file.Path)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture: %w", err)
+		return fmt.Errorf("error during la lecture: %w", err)
 	}
 
 	// Compresser les données
 	compressedData, err := m.compressor.Compress(data)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la compression: %w", err)
+		return fmt.Errorf("error compressing: %w", err)
 	}
 
-	// Chiffrer les données compressées
+	// Chiffrer les données compressedes
 	encryptedData, err := m.encryptor.Encrypt(compressedData)
 	if err != nil {
 		return fmt.Errorf("erreur lors du chiffrement: %w", err)
@@ -395,7 +395,7 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 	// Sauvegarder dans le stockage
 	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
 	if err := m.saveToStorage(storageKey, encryptedData); err != nil {
-		return fmt.Errorf("erreur lors de la sauvegarde: %w", err)
+		return fmt.Errorf("error saving: %w", err)
 	}
 
 	// Mettre à jour la clé de stockage dans l'entrée du fichier
@@ -405,15 +405,15 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 	return nil
 }
 
-// calculateCompressedSize calcule la taille compressée totale
+// calculateCompressedSize calcule la taille compressede totale
 func (m *Manager) calculateCompressedSize(added, modified []index.FileEntry) int64 {
-	// TODO: Implémenter le calcul de la taille compressée
+	// TODO: Implémenter le calcul de la taille compressede
 	return 0
 }
 
-// calculateEncryptedSize calcule la taille chiffrée totale
+// calculateEncryptedSize calcule la taille encryptede totale
 func (m *Manager) calculateEncryptedSize(added, modified []index.FileEntry) int64 {
-	// TODO: Implémenter le calcul de la taille chiffrée
+	// TODO: Implémenter le calcul de la taille encryptede
 	return 0
 }
 
@@ -440,7 +440,7 @@ func (m *Manager) deleteBackupIndex(backupID string) error {
 
 	indexKey := fmt.Sprintf("indexes/%s.json", backupID)
 	if err := m.storageClient.DeleteObject(indexKey); err != nil {
-		return fmt.Errorf("erreur lors de la suppression de l'index: %w", err)
+		return fmt.Errorf("error during la suppression de l'index: %w", err)
 	}
 
 	utils.Debug("Index deleted: %s", indexKey)

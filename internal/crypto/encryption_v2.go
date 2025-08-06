@@ -45,21 +45,21 @@ func NewEncryptorV2(key string, algorithm EncryptionAlgorithm) (*EncryptorV2, er
 	// Décoder la clé hexadécimale si nécessaire
 	keyBytes, err := decodeKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du décodage de la clé: %w", err)
+		return nil, fmt.Errorf("error decoding key: %w", err)
 	}
 
 	// Valider la longueur de la clé selon l'algorithme
 	switch algorithm {
 	case AES256GCM:
 		if len(keyBytes) != 32 {
-			return nil, fmt.Errorf("AES-256-GCM nécessite une clé de 32 bytes, got %d", len(keyBytes))
+			return nil, fmt.Errorf("AES-256-GCM requires a 32-byte key, got %d", len(keyBytes))
 		}
 	case XChaCha20Poly1305:
 		if len(keyBytes) != 32 {
-			return nil, fmt.Errorf("XChaCha20-Poly1305 nécessite une clé de 32 bytes, got %d", len(keyBytes))
+			return nil, fmt.Errorf("XChaCha20-Poly1305 requires a 32-byte key, got %d", len(keyBytes))
 		}
 	default:
-		return nil, fmt.Errorf("algorithme non supporté: %s", algorithm)
+		return nil, fmt.Errorf("unsupported algorithm: %s", algorithm)
 	}
 
 	encryptor := &EncryptorV2{
@@ -81,17 +81,17 @@ func (e *EncryptorV2) initialize() error {
 	case AES256GCM:
 		block, err := aes.NewCipher(e.key)
 		if err != nil {
-			return fmt.Errorf("erreur lors de la création du cipher AES: %w", err)
+			return fmt.Errorf("error creating AES cipher: %w", err)
 		}
 		e.aesGCM, err = cipher.NewGCM(block)
 		if err != nil {
-			return fmt.Errorf("erreur lors de la création du GCM: %w", err)
+			return fmt.Errorf("error creating GCM: %w", err)
 		}
 	case XChaCha20Poly1305:
 		var err error
 		e.xchacha, err = chacha20poly1305.NewX(e.key)
 		if err != nil {
-			return fmt.Errorf("erreur lors de la création du XChaCha20-Poly1305: %w", err)
+			return fmt.Errorf("error creating XChaCha20-Poly1305: %w", err)
 		}
 	}
 	return nil
@@ -105,7 +105,7 @@ func (e *EncryptorV2) Encrypt(plaintext []byte) ([]byte, error) {
 	case XChaCha20Poly1305:
 		return e.encryptXChaCha(plaintext)
 	default:
-		return nil, fmt.Errorf("algorithme non supporté: %s", e.algorithm)
+		return nil, fmt.Errorf("unsupported algorithm: %s", e.algorithm)
 	}
 }
 
@@ -117,7 +117,7 @@ func (e *EncryptorV2) Decrypt(ciphertext []byte) ([]byte, error) {
 	case XChaCha20Poly1305:
 		return e.decryptXChaCha(ciphertext)
 	default:
-		return nil, fmt.Errorf("algorithme non supporté: %s", e.algorithm)
+		return nil, fmt.Errorf("unsupported algorithm: %s", e.algorithm)
 	}
 }
 
@@ -125,7 +125,7 @@ func (e *EncryptorV2) Decrypt(ciphertext []byte) ([]byte, error) {
 func (e *EncryptorV2) encryptAES(plaintext []byte) ([]byte, error) {
 	nonce := make([]byte, e.aesGCM.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("erreur lors de la génération du nonce: %w", err)
+		return nil, fmt.Errorf("error generating nonce: %w", err)
 	}
 
 	ciphertext := e.aesGCM.Seal(nonce, nonce, plaintext, nil)
@@ -143,7 +143,7 @@ func (e *EncryptorV2) decryptAES(ciphertext []byte) ([]byte, error) {
 
 	plaintext, err := e.aesGCM.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du déchiffrement AES: %w", err)
+		return nil, fmt.Errorf("error decrypting AES: %w", err)
 	}
 
 	return plaintext, nil
@@ -153,7 +153,7 @@ func (e *EncryptorV2) decryptAES(ciphertext []byte) ([]byte, error) {
 func (e *EncryptorV2) encryptXChaCha(plaintext []byte) ([]byte, error) {
 	nonce := make([]byte, e.xchacha.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("erreur lors de la génération du nonce: %w", err)
+		return nil, fmt.Errorf("error generating nonce: %w", err)
 	}
 
 	ciphertext := e.xchacha.Seal(nonce, nonce, plaintext, nil)
@@ -171,7 +171,7 @@ func (e *EncryptorV2) decryptXChaCha(ciphertext []byte) ([]byte, error) {
 
 	plaintext, err := e.xchacha.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du déchiffrement XChaCha: %w", err)
+		return nil, fmt.Errorf("error decrypting XChaCha: %w", err)
 	}
 
 	return plaintext, nil
@@ -186,17 +186,17 @@ func (e *EncryptorV2) GetAlgorithm() EncryptionAlgorithm {
 func ValidateKeyV2(key string, algorithm EncryptionAlgorithm) error {
 	keyBytes, err := decodeKey(key)
 	if err != nil {
-		return fmt.Errorf("erreur lors du décodage de la clé: %w", err)
+		return fmt.Errorf("error decoding key: %w", err)
 	}
 
 	switch algorithm {
 	case AES256GCM, XChaCha20Poly1305:
 		if len(keyBytes) != 32 {
-			return fmt.Errorf("la clé doit faire 32 bytes pour %s, got %d", algorithm, len(keyBytes))
+			return fmt.Errorf("key must be 32 bytes for %s, got %d", algorithm, len(keyBytes))
 		}
 		return nil
 	default:
-		return fmt.Errorf("algorithme non supporté: %s", algorithm)
+		return fmt.Errorf("unsupported algorithm: %s", algorithm)
 	}
 }
 
@@ -208,12 +208,12 @@ func GenerateKeyV2(algorithm EncryptionAlgorithm) (string, error) {
 	case AES256GCM, XChaCha20Poly1305:
 		keySize = 32
 	default:
-		return "", fmt.Errorf("algorithme non supporté: %s", algorithm)
+		return "", fmt.Errorf("unsupported algorithm: %s", algorithm)
 	}
 
 	key := make([]byte, keySize)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return "", fmt.Errorf("erreur lors de la génération de la clé: %w", err)
+		return "", fmt.Errorf("error generating key: %w", err)
 	}
 
 	return string(key), nil

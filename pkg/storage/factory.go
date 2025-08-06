@@ -26,6 +26,6 @@ func NewStorageClient(config *utils.Config) (Client, error) {
 		)
 
 	default:
-		return nil, fmt.Errorf("type de stockage non supporté: %s", config.Storage.Type)
+		return nil, fmt.Errorf("unsupported storage type: %s", config.Storage.Type)
 	}
 }

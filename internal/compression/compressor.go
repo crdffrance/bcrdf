@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"bcrdf/pkg/utils"
 )
@@ -23,6 +25,17 @@ func NewCompressor(level int) (*Compressor, error) {
 	return &Compressor{
 		level: level,
 	}, nil
+}
+
+// CompressFile compresses data with adaptive compression based on file type
+func (c *Compressor) CompressFile(data []byte, filePath string) ([]byte, error) {
+	// Check if file should be compressed based on extension
+	if !c.shouldCompress(filePath) {
+		utils.Debug("Skipping compression for: %s (already compressed format)", filePath)
+		return data, nil
+	}
+
+	return c.Compress(data)
 }
 
 // Compress compresse des données avec GZIP
@@ -73,8 +86,8 @@ func (c *Compressor) Decompress(data []byte) ([]byte, error) {
 	return decompressed, nil
 }
 
-// CompressFile compresse un fichier complet
-func (c *Compressor) CompressFile(inputPath, outputPath string) error {
+// CompressFileToFile compresse un fichier complet vers un autre fichier
+func (c *Compressor) CompressFileToFile(inputPath, outputPath string) error {
 	utils.Info("Compression du fichier: %s", inputPath)
 
 	// Lire le fichier source
@@ -187,4 +200,39 @@ func (c *Compressor) SetCompressionLevel(level int) error {
 	}
 	c.level = level
 	return nil
+}
+
+// shouldCompress determines if a file should be compressed based on its extension
+func (c *Compressor) shouldCompress(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// Already compressed formats - skip compression
+	compressedFormats := map[string]bool{
+		// Images
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+		".tiff": true, ".tif": true, ".bmp": true, ".ico": true, ".svg": true,
+		// Videos
+		".mp4": true, ".avi": true, ".mkv": true, ".mov": true, ".wmv": true,
+		".flv": true, ".webm": true, ".m4v": true, ".3gp": true, ".ogv": true,
+		// Audio
+		".mp3": true, ".aac": true, ".ogg": true, ".wma": true, ".flac": true,
+		".m4a": true, ".opus": true, ".wav": false, // WAV can benefit from compression
+		// Archives
+		".zip": true, ".rar": true, ".7z": true, ".tar.gz": true, ".tgz": true,
+		".tar.bz2": true, ".tar.xz": true, ".gz": true, ".bz2": true, ".xz": true,
+		// Documents (already compressed)
+		".pdf": true, ".docx": true, ".xlsx": true, ".pptx": true,
+		".odt": true, ".ods": true, ".odp": true,
+		// Executables and binaries
+		".exe": false, ".dll": false, ".so": false, ".dylib": false, // Can benefit from compression
+		".bin": false, ".iso": false,
+	}
+
+	// Check if format is in the map
+	if skipCompress, exists := compressedFormats[ext]; exists {
+		return !skipCompress
+	}
+
+	// For unknown extensions, apply compression
+	return true
 }

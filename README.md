@@ -8,6 +8,13 @@
 
 ## ✨ Key Features
 
+### 🆕 **Latest Features (v2.1.0)**
+- 🧹 **Automatic retention management** with configurable policies
+- 🖥️ **Interactive configuration wizard** with presets for popular services
+- ⚡ **Performance optimizations** (adaptive compression, file filtering, buffered I/O)
+- 🌍 **Fully internationalized** interface (English)
+
+### 🔧 **Core Features**
 - 🔄 **Incremental backups** with intelligent index-based deduplication
 - 🔐 **End-to-end encryption** (AES-256-GCM, XChaCha20-Poly1305)
 - 🗜️ **GZIP compression** with configurable levels
@@ -37,7 +44,25 @@ make setup
 
 BCRDF supports two storage types: **S3** and **WebDAV**.
 
-#### S3 Configuration (AWS, Scaleway, DigitalOcean, etc.)
+#### Interactive Configuration (Recommended)
+```bash
+# Launch interactive configuration wizard
+./bcrdf init --interactive
+
+# Or use the short form
+./bcrdf init -i
+```
+
+The interactive wizard will guide you through:
+- Storage type selection (S3 or WebDAV)
+- Service presets (AWS, Scaleway, Nextcloud, etc.)
+- Encryption key generation
+- Performance optimization settings
+- Retention policies
+
+#### Manual Configuration
+
+##### S3 Configuration (AWS, Scaleway, DigitalOcean, etc.)
 ```bash
 # Generate S3 configuration
 ./bcrdf init --storage s3
@@ -57,7 +82,6 @@ storage:
   secret_key: "YOUR_SECRET_KEY"
 
 backup:
-  source_path: "/path/to/backup"
   encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   encryption_algo: "aes-256-gcm"
   compression_level: 3
@@ -87,7 +111,6 @@ storage:
   password: "YOUR_PASSWORD"
 
 backup:
-  source_path: "/path/to/backup"
   encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   encryption_algo: "aes-256-gcm"
   compression_level: 3
@@ -169,6 +192,10 @@ backup:
 
 # Show encryption algorithms info
 ./bcrdf info
+
+# Manage retention policies
+./bcrdf retention --info    # Show retention status
+./bcrdf retention --apply   # Apply retention policy manually
 ```
 
 ### Display Modes
@@ -350,6 +377,52 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
+
+## 🧹 Retention Management
+
+BCRDF includes automatic and manual retention management to keep your backup storage optimized.
+
+### Retention Policies
+
+Configure retention in your `config.yaml`:
+
+```yaml
+retention:
+  days: 30        # Keep backups for 30 days
+  max_backups: 10 # Keep maximum 10 backups
+```
+
+### Automatic Retention
+
+Retention policies are automatically applied after each successful backup. Old backups are deleted based on:
+
+1. **Age limit**: Backups older than configured days
+2. **Count limit**: Excess backups beyond max_backups (keeps newest)
+
+### Manual Retention Management
+
+```bash
+# Show retention status and which backups would be deleted
+./bcrdf retention --info
+
+# Apply retention policy manually
+./bcrdf retention --apply
+
+# Verbose mode for detailed information
+./bcrdf retention --info --verbose
+./bcrdf retention --apply --verbose
+```
+
+### Retention Process
+
+The retention manager:
+- ✅ Lists all available backups
+- ✅ Sorts by creation date (newest first)
+- ✅ Identifies backups to delete based on policies
+- ✅ Safely removes backup data and indexes
+- ✅ Reports cleanup results
+
+**Note**: Retention failures don't stop backups - they only generate warnings.
 
 ## 📄 License
 

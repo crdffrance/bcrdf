@@ -9,9 +9,18 @@ import (
 	"bcrdf/internal/compression"
 	"bcrdf/internal/crypto"
 	"bcrdf/internal/index"
+	"bcrdf/internal/retention"
 	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
+
+// FileBatch represents a batch of small files to upload together
+type FileBatch struct {
+	Files         []index.FileEntry
+	TotalSize     int64
+	BatchID       string
+	ProcessedData map[string][]byte // file path -> processed data
+}
 
 // Manager gère les opérations de sauvegarde
 type Manager struct {
@@ -32,109 +41,48 @@ func NewManager(configFile string) *Manager {
 
 // CreateBackup effectue une sauvegarde complète
 func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) error {
-	if verbose {
-		utils.Info("🚀 Starting backup: %s", backupName)
-	} else {
-		utils.ProgressStep(fmt.Sprintf("🚀 Starting backup: %s", backupName))
-	}
 	startTime := time.Now()
+	m.logBackupStart(backupName, verbose)
 
-	// Charger la configuration
-	config, err := utils.LoadConfig(m.configFile)
-	if err != nil {
-		return fmt.Errorf("erreur lors du chargement de la configuration: %w", err)
-	}
-	m.config = config
-
-	// Initialiser les composants
-	if err := m.initializeComponents(); err != nil {
-		return fmt.Errorf("error during l'initialisation: %w", err)
+	if err := m.prepareBackup(sourcePath); err != nil {
+		return err
 	}
 
-	// Vérifier que le chemin source existe
-	if !utils.FileExists(sourcePath) {
-		return fmt.Errorf("le chemin source n'existe pas: %s", sourcePath)
-	}
-
-	// Créer l'ID de sauvegarde
 	backupID := fmt.Sprintf("%s-%s", backupName, time.Now().Format("20060102-150405"))
 
-	// Créer l'index de la sauvegarde actuelle avec le mode de checksum configuré
-	checksumMode := m.config.Backup.ChecksumMode
-	if checksumMode == "" {
-		checksumMode = "fast" // Mode par défaut
+	currentIndex, err := m.createCurrentIndex(sourcePath, backupID, verbose)
+	if err != nil {
+		return err
 	}
 
-	if !verbose {
-		utils.ProgressStep("Creating index...")
-	}
-	currentIndex, err := m.indexMgr.CreateIndexWithMode(sourcePath, backupID, checksumMode, verbose)
+	diff, err := m.calculateBackupDiff(currentIndex, verbose)
 	if err != nil {
-		return fmt.Errorf("error creating index: %w", err)
+		return err
 	}
 
-	// Chercher la sauvegarde précédente pour comparaison
-	if !verbose {
-		utils.ProgressStep("Searching for previous backup...")
+	if err := m.executeBackup(currentIndex, diff, backupID, verbose); err != nil {
+		return err
 	}
-	previousIndex, err := m.findPreviousBackup()
-	if err != nil {
+
+	m.logBackupCompletion(diff, time.Since(startTime), verbose)
+
+	// Apply retention policy after successful backup
+	if err := m.applyRetentionPolicy(verbose); err != nil {
+		// Don't fail the backup if retention fails, just warn
 		if verbose {
-			utils.Warn("No previous backup found, performing full backup")
+			utils.Warn("Retention policy application failed: %v", err)
 		} else {
-			utils.ProgressInfo("First backup - performing full backup")
+			utils.ProgressWarning("Retention cleanup failed")
 		}
-	}
-
-	// Comparer les index pour déterminer les changements
-	var diff *index.IndexDiff
-	if previousIndex != nil {
-		if !verbose {
-			utils.ProgressStep("Comparing indexes...")
-		}
-		diff, err = m.indexMgr.CompareIndexes(currentIndex, previousIndex)
-		if err != nil {
-			return fmt.Errorf("error during la comparaison des index: %w", err)
-		}
-	} else {
-		// Première sauvegarde, tous les fichiers sont nouveaux
-		diff = &index.IndexDiff{
-			Added:    currentIndex.Files,
-			Modified: []index.FileEntry{},
-			Deleted:  []index.FileEntry{},
-		}
-	}
-
-	// Sauvegarder les fichiers modifiés/ajoutés
-	if err := m.backupFiles(diff.Added, diff.Modified, backupID, verbose); err != nil {
-		return fmt.Errorf("error saving des fichiers: %w", err)
-	}
-
-	// Mettre à jour les métadonnées de l'index
-	currentIndex.CompressedSize = m.calculateCompressedSize(diff.Added, diff.Modified)
-	currentIndex.EncryptedSize = m.calculateEncryptedSize(diff.Added, diff.Modified)
-
-	// Sauvegarder l'index
-	if !verbose {
-		utils.ProgressStep("Saving index...")
-	}
-	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
-		return fmt.Errorf("error saving de l'index: %w", err)
-	}
-
-	duration := time.Since(startTime)
-
-	if verbose {
-		utils.Info("✅ Backup completed in %v", duration)
-		utils.Info("📊 Statistics: %d files added, %d modified, %d deleted",
-			len(diff.Added), len(diff.Modified), len(diff.Deleted))
-	} else {
-		utils.ProgressSuccess(fmt.Sprintf("✅ Backup completed in %v", duration))
-		utils.ProgressInfo(fmt.Sprintf("📊 %d added, %d modified, %d deleted",
-			len(diff.Added), len(diff.Modified), len(diff.Deleted)))
 	}
 
 	return nil
+}
+
+// applyRetentionPolicy applique la politique de rétention après une sauvegarde
+func (m *Manager) applyRetentionPolicy(verbose bool) error {
+	retentionMgr := retention.NewManager(m.config, m.indexMgr, m.storageClient)
+	return retentionMgr.ApplyRetentionPolicy(verbose)
 }
 
 // DeleteBackup supprime une sauvegarde
@@ -374,14 +322,20 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 
 	utils.Debug("Sauvegarde du fichier: %s", file.Path)
 
-	// Lire le fichier source
-	data, err := utils.ReadFile(file.Path)
+	// Lire le fichier source avec buffer optimisé
+	bufferSize, err := utils.ParseBufferSize(m.config.Backup.BufferSize)
+	if err != nil {
+		utils.Debug("Invalid buffer size, using default: %v", err)
+		bufferSize = 64 * 1024 * 1024 // 64MB default
+	}
+
+	data, err := utils.ReadFileWithBuffer(file.Path, bufferSize)
 	if err != nil {
 		return fmt.Errorf("error during la lecture: %w", err)
 	}
 
-	// Compress les données
-	compressedData, err := m.compressor.Compress(data)
+	// Compress les données avec compression adaptative
+	compressedData, err := m.compressor.CompressFile(data, file.Path)
 	if err != nil {
 		return fmt.Errorf("error compressing: %w", err)
 	}
@@ -450,4 +404,126 @@ func (m *Manager) deleteBackupIndex(backupID string) error {
 // saveToStorage sauvegarde des données dans le stockage
 func (m *Manager) saveToStorage(key string, data []byte) error {
 	return m.storageClient.Upload(key, data)
+}
+
+// logBackupStart logs the start of backup operation
+func (m *Manager) logBackupStart(backupName string, verbose bool) {
+	if verbose {
+		utils.Info("🚀 Starting backup: %s", backupName)
+	} else {
+		utils.ProgressStep(fmt.Sprintf("🚀 Starting backup: %s", backupName))
+	}
+}
+
+// prepareBackup prepares the backup by loading config and initializing components
+func (m *Manager) prepareBackup(sourcePath string) error {
+	// Charger la configuration
+	config, err := utils.LoadConfig(m.configFile)
+	if err != nil {
+		return fmt.Errorf("erreur lors du chargement de la configuration: %w", err)
+	}
+	m.config = config
+
+	// Initialiser les composants
+	if err := m.initializeComponents(); err != nil {
+		return fmt.Errorf("error during l'initialisation: %w", err)
+	}
+
+	// Vérifier que le chemin source existe
+	if !utils.FileExists(sourcePath) {
+		return fmt.Errorf("le chemin source n'existe pas: %s", sourcePath)
+	}
+
+	return nil
+}
+
+// createCurrentIndex creates the current backup index
+func (m *Manager) createCurrentIndex(sourcePath, backupID string, verbose bool) (*index.BackupIndex, error) {
+	// Créer l'index de la sauvegarde actuelle avec le mode de checksum configuré
+	checksumMode := m.config.Backup.ChecksumMode
+	if checksumMode == "" {
+		checksumMode = "fast" // Mode par défaut
+	}
+
+	if !verbose {
+		utils.ProgressStep("Creating index...")
+	}
+	currentIndex, err := m.indexMgr.CreateIndexWithMode(sourcePath, backupID, checksumMode, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("error creating index: %w", err)
+	}
+
+	return currentIndex, nil
+}
+
+// calculateBackupDiff calculates the difference between current and previous backup
+func (m *Manager) calculateBackupDiff(currentIndex *index.BackupIndex, verbose bool) (*index.IndexDiff, error) {
+	// Chercher la sauvegarde précédente pour comparaison
+	if !verbose {
+		utils.ProgressStep("Searching for previous backup...")
+	}
+	previousIndex, err := m.findPreviousBackup()
+	if err != nil {
+		if verbose {
+			utils.Warn("No previous backup found, performing full backup")
+		} else {
+			utils.ProgressInfo("First backup - performing full backup")
+		}
+	}
+
+	// Comparer les index pour déterminer les changements
+	var diff *index.IndexDiff
+	if previousIndex != nil {
+		if !verbose {
+			utils.ProgressStep("Comparing indexes...")
+		}
+		diff, err = m.indexMgr.CompareIndexes(currentIndex, previousIndex)
+		if err != nil {
+			return nil, fmt.Errorf("error during la comparaison des index: %w", err)
+		}
+	} else {
+		// Première sauvegarde, tous les fichiers sont nouveaux
+		diff = &index.IndexDiff{
+			Added:    currentIndex.Files,
+			Modified: []index.FileEntry{},
+			Deleted:  []index.FileEntry{},
+		}
+	}
+
+	return diff, nil
+}
+
+// executeBackup executes the actual backup process
+func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.IndexDiff, backupID string, verbose bool) error {
+	// Sauvegarder les fichiers modifiés/ajoutés
+	if err := m.backupFiles(diff.Added, diff.Modified, backupID, verbose); err != nil {
+		return fmt.Errorf("error saving des fichiers: %w", err)
+	}
+
+	// Mettre à jour les métadonnées de l'index
+	currentIndex.CompressedSize = m.calculateCompressedSize(diff.Added, diff.Modified)
+	currentIndex.EncryptedSize = m.calculateEncryptedSize(diff.Added, diff.Modified)
+
+	// Sauvegarder l'index
+	if !verbose {
+		utils.ProgressStep("Saving index...")
+	}
+	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
+		return fmt.Errorf("error saving de l'index: %w", err)
+	}
+
+	return nil
+}
+
+// logBackupCompletion logs the completion of backup operation
+func (m *Manager) logBackupCompletion(diff *index.IndexDiff, duration time.Duration, verbose bool) {
+	if verbose {
+		utils.Info("✅ Backup completed in %v", duration)
+		utils.Info("📊 Statistics: %d files added, %d modified, %d deleted",
+			len(diff.Added), len(diff.Modified), len(diff.Deleted))
+	} else {
+		utils.ProgressSuccess(fmt.Sprintf("✅ Backup completed in %v", duration))
+		utils.ProgressInfo(fmt.Sprintf("📊 %d added, %d modified, %d deleted",
+			len(diff.Added), len(diff.Modified), len(diff.Deleted)))
+	}
 }

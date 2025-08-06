@@ -93,7 +93,7 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 	// Charger depuis S3
 	data, err := m.storageClient.Download(indexKey)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du chargement de l'index: %w", err)
+		return nil, fmt.Errorf("error loading index: %w", err)
 	}
 
 	var index BackupIndex
@@ -210,9 +210,9 @@ func (m *Manager) ListBackups(backupID string) error {
 		return indexes[i].CreatedAt.After(indexes[j].CreatedAt)
 	})
 
-	fmt.Printf("\n📋 Sauvegardes disponibles:\n")
+	fmt.Printf("\n📋 Available backups:\n")
 	fmt.Printf("%-20s %-25s %-15s %-12s %-12s\n",
-		"ID", "Date", "Fichiers", "Taille", "Comprimé")
+		"ID", "Date", "Files", "Size", "Compressed")
 	fmt.Printf("%s\n", strings.Repeat("-", 90))
 
 	for _, backup := range indexes {
@@ -227,7 +227,7 @@ func (m *Manager) ListBackups(backupID string) error {
 			compressedMB)
 	}
 
-	fmt.Printf("\nTotal: %d sauvegardes\n", len(indexes))
+	fmt.Printf("\nTotal: %d backups\n", len(indexes))
 	return nil
 }
 
@@ -236,19 +236,19 @@ func (m *Manager) showBackupDetails(backupID string) error {
 	// Charger l'index de la sauvegarde
 	index, err := m.LoadIndex(backupID)
 	if err != nil {
-		return fmt.Errorf("erreur lors du chargement de l'index %s: %w", backupID, err)
+		return fmt.Errorf("error loading index %s: %w", backupID, err)
 	}
 
-	fmt.Printf("\n📋 Détails de la sauvegarde: %s\n", backupID)
+	fmt.Printf("\n📋 Backup details: %s\n", backupID)
 	fmt.Printf("%s\n", strings.Repeat("-", 60))
-	fmt.Printf("Date de création: %s\n", index.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Chemin source: %s\n", index.SourcePath)
-	fmt.Printf("Nombre de fichiers: %d\n", index.TotalFiles)
-	fmt.Printf("Taille totale: %.1f MB\n", float64(index.TotalSize)/(1024*1024))
+	fmt.Printf("Created: %s\n", index.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Source path: %s\n", index.SourcePath)
+	fmt.Printf("Files: %d\n", index.TotalFiles)
+	fmt.Printf("Total size: %.1f MB\n", float64(index.TotalSize)/(1024*1024))
 	fmt.Printf("Compressed size: %.1f MB\n", float64(index.CompressedSize)/(1024*1024))
 	fmt.Printf("Encrypted size: %.1f MB\n", float64(index.EncryptedSize)/(1024*1024))
 
-	fmt.Printf("\n📁 Fichiers:\n")
+	fmt.Printf("\n📁 Files:\n")
 	for i, file := range index.Files {
 		sizeKB := float64(file.Size) / 1024
 		fmt.Printf("  [%d] %s (%.1f KB) -> %s\n",
@@ -292,6 +292,52 @@ func shouldSkipFile(path string, info os.FileInfo) bool {
 	for _, dir := range systemDirs {
 		if strings.HasPrefix(path, dir) {
 			return true
+		}
+	}
+
+	return false
+}
+
+// shouldSkipFileWithConfig determines if a file should be skipped based on config patterns
+func (m *Manager) shouldSkipFileWithConfig(path string, info os.FileInfo) bool {
+	// First check basic skip rules
+	if shouldSkipFile(path, info) {
+		return true
+	}
+
+	// Check configured skip patterns
+	if m.config != nil && len(m.config.Backup.SkipPatterns) > 0 {
+		relativePath := filepath.Base(path)
+		fullPath := path
+
+		for _, pattern := range m.config.Backup.SkipPatterns {
+			// Handle directory patterns (ending with /)
+			if strings.HasSuffix(pattern, "/") {
+				dirPattern := strings.TrimSuffix(pattern, "/")
+				if info.IsDir() && (strings.Contains(fullPath, dirPattern) || relativePath == dirPattern) {
+					return true
+				}
+				// Skip files inside the directory
+				if strings.Contains(fullPath, "/"+dirPattern+"/") {
+					return true
+				}
+			} else {
+				// Handle file patterns with wildcards
+				if strings.Contains(pattern, "*") {
+					if matched, _ := filepath.Match(pattern, relativePath); matched {
+						return true
+					}
+					// Also check the full path for patterns like "*.log"
+					if matched, _ := filepath.Match(pattern, filepath.Base(fullPath)); matched {
+						return true
+					}
+				} else {
+					// Exact match
+					if relativePath == pattern || strings.Contains(fullPath, pattern) {
+						return true
+					}
+				}
+			}
 		}
 	}
 
@@ -377,6 +423,15 @@ func (m *Manager) countFiles(sourcePath, checksumMode string, verbose bool) (int
 		return fileCount, nil // Skip counting in verbose mode
 	}
 
+	// Load configuration for skip patterns
+	if m.config == nil {
+		config, err := utils.LoadConfig(m.configFile)
+		if err != nil {
+			return 0, fmt.Errorf("error loading config: %w", err)
+		}
+		m.config = config
+	}
+
 	modeDesc := map[string]string{
 		"full":     "🔄 Analyzing directory (full integrity)...",
 		"fast":     "🔄 Analyzing directory (fast mode)...",
@@ -389,7 +444,7 @@ func (m *Manager) countFiles(sourcePath, checksumMode string, verbose bool) (int
 	utils.ProgressStep(desc)
 
 	err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || shouldSkipFile(path, info) {
+		if err != nil || m.shouldSkipFileWithConfig(path, info) {
 			return nil
 		}
 		fileCount++
@@ -414,6 +469,15 @@ func (m *Manager) setupProgressBar(verbose bool, fileCount int64) *utils.Progres
 func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, index *BackupIndex, progressBar *utils.ProgressBar) error {
 	processed := int64(0)
 
+	// Load configuration for skip patterns
+	if m.config == nil {
+		config, err := utils.LoadConfig(m.configFile)
+		if err != nil {
+			return fmt.Errorf("error loading config: %w", err)
+		}
+		m.config = config
+	}
+
 	return filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			if verbose {
@@ -422,7 +486,7 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 			return nil // Continue despite error
 		}
 
-		if shouldSkipFile(path, info) {
+		if m.shouldSkipFileWithConfig(path, info) {
 			return nil
 		}
 

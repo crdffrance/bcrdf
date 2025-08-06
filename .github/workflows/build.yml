@@ -96,6 +96,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Install dependencies
+        run: go mod download
+
       - name: Get version
         id: version
         run: |
@@ -107,16 +110,17 @@ jobs:
 
       - name: Build binary
         run: |
+          mkdir -p dist
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build \
             -ldflags "-X main.Version=${{ steps.version.outputs.version }}-${{ matrix.target }}" \
-            -o dist/bcrdf-${{ matrix.target }} \
-            cmd/bcrdf/main.go
+            -o dist/bcrdf-${{ matrix.target }}${{ matrix.os == 'windows' && '.exe' || '' }} \
+            ./cmd/bcrdf
 
       - name: Create archive
         run: |
           cd dist
           if [ "${{ matrix.os }}" = "windows" ]; then
-            zip bcrdf-${{ matrix.target }}.zip bcrdf-${{ matrix.target }}
+            zip bcrdf-${{ matrix.target }}.zip bcrdf-${{ matrix.target }}.exe
           else
             tar -czf bcrdf-${{ matrix.target }}.tar.gz bcrdf-${{ matrix.target }}
           fi
@@ -150,7 +154,7 @@ jobs:
           body: |
             ## BCRDF v${{ github.event.release.tag_name }}
             
-            ### 📦 Binaries disponibles
+            ### 📦 Available Binaries
             
             **Linux:**
             - `bcrdf-linux-x64.tar.gz` - Linux x64
@@ -171,14 +175,14 @@ jobs:
             ```bash
             # Linux/macOS
             tar -xzf bcrdf-linux-x64.tar.gz
-            sudo mv bcrdf /usr/local/bin/
+            sudo mv bcrdf-linux-x64 /usr/local/bin/bcrdf
             
             # Windows
-            # Extraire le zip et ajouter au PATH
+            # Extract the zip and add to PATH
             ```
             
             ### 📋 Changelog
             
-            Consultez les [commits](https://github.com/${{ github.repository }}/compare/${{ github.event.release.tag_name }}...main) pour les détails.
+            See [commits](https://github.com/${{ github.repository }}/compare/${{ github.event.release.tag_name }}...main) for details.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

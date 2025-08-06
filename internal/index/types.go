@@ -87,8 +87,6 @@ func NewFileEntryWithMode(path string, info os.FileInfo, checksumMode string) (*
 	return entry, nil
 }
 
-
-
 // calculateFileChecksumWithMode calculates checksum based on mode
 func calculateFileChecksumWithMode(path string, info os.FileInfo, mode string) (string, error) {
 	switch mode {
@@ -191,8 +189,6 @@ func calculateDirectoryChecksum(path string, info os.FileInfo) string {
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
 }
-
-
 
 // GetStorageKey génère une clé de stockage unique pour un fichier
 func (f *FileEntry) GetStorageKey() string {

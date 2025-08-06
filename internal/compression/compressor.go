@@ -83,7 +83,7 @@ func (c *Compressor) CompressFile(inputPath, outputPath string) error {
 		return fmt.Errorf("error reading file: %w", err)
 	}
 
-	// Compresser les données
+	// Compress les données
 	compressedData, err := c.Compress(data)
 	if err != nil {
 		return fmt.Errorf("error compressing: %w", err)
@@ -108,7 +108,7 @@ func (c *Compressor) DecompressFile(inputPath, outputPath string) error {
 		return fmt.Errorf("error reading compressed file: %w", err)
 	}
 
-	// Décompresser les données
+	// Decompress les données
 	decompressedData, err := c.Decompress(compressedData)
 	if err != nil {
 		return fmt.Errorf("error decompressing: %w", err)
@@ -131,7 +131,7 @@ func (c *Compressor) CompressStream(input io.Reader, output io.Writer) error {
 		return fmt.Errorf("error reading data: %w", err)
 	}
 
-	// Compresser les données
+	// Compress les données
 	compressedData, err := c.Compress(data)
 	if err != nil {
 		return fmt.Errorf("error compressing: %w", err)
@@ -153,7 +153,7 @@ func (c *Compressor) DecompressStream(input io.Reader, output io.Writer) error {
 		return fmt.Errorf("error reading data compressedes: %w", err)
 	}
 
-	// Décompresser les données
+	// Decompress les données
 	decompressedData, err := c.Decompress(compressedData)
 	if err != nil {
 		return fmt.Errorf("error decompressing: %w", err)

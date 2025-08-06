@@ -38,84 +38,18 @@ func (m *Manager) CreateIndexWithMode(sourcePath, backupID, checksumMode string,
 		utils.Info("Creating index for: %s (mode: %s)", sourcePath, checksumMode)
 	}
 
-	index := &BackupIndex{
-		BackupID:   backupID,
-		CreatedAt:  time.Now(),
-		SourcePath: sourcePath,
-		Files:      []FileEntry{},
-	}
+	index := m.initializeIndex(backupID, sourcePath)
 
-	// Compter d'abord le nombre de fichiers pour la barre de progression
-	var fileCount int64
-	if !verbose {
-		modeDesc := map[string]string{
-			"full":     "🔄 Analyzing directory (full integrity)...",
-			"fast":     "🔄 Analyzing directory (fast mode)...",
-			"metadata": "🔄 Analyzing directory (metadata only)...",
-		}
-		desc := modeDesc[checksumMode]
-		if desc == "" {
-			desc = "🔄 Analyzing directory..."
-		}
-		utils.ProgressStep(desc)
-		err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || shouldSkipFile(path, info) {
-				return nil
-			}
-			fileCount++
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("error counting files: %w", err)
-		}
-	}
-
-	// Barre de progression pour le mode non-verbeux
-	var progressBar *utils.ProgressBar
-	if !verbose && fileCount > 0 {
-		progressBar = utils.NewProgressBar(fileCount)
-	}
-
-	processed := int64(0)
-
-	// Parcourir récursivement le répertoire source
-	err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if verbose {
-				utils.Warn("Error accessing %s: %v", path, err)
-			}
-			return nil // Continuer malgré l'erreur
-		}
-
-		// Ignorer les fichiers système et temporaires
-		if shouldSkipFile(path, info) {
-			return nil
-		}
-
-		// Créer une entrée pour ce fichier avec le mode de checksum spécifié
-		entry, err := NewFileEntryWithMode(path, info, checksumMode)
-		if err != nil {
-			if verbose {
-				utils.Warn("Error creating entry for %s: %v", path, err)
-			}
-			return nil
-		}
-
-		index.Files = append(index.Files, *entry)
-		index.TotalFiles++
-		index.TotalSize += entry.Size
-
-		// Mettre à jour la progression
-		if !verbose && progressBar != nil {
-			processed++
-			progressBar.Update(processed)
-		}
-
-		return nil
-	})
-
+	fileCount, err := m.countFiles(sourcePath, checksumMode, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("error walking directory: %w", err)
+		return nil, err
+	}
+
+	progressBar := m.setupProgressBar(verbose, fileCount)
+
+	err = m.processFiles(sourcePath, checksumMode, verbose, index, progressBar)
+	if err != nil {
+		return nil, err
 	}
 
 	// Terminer la barre de progression
@@ -424,4 +358,91 @@ func (m *Manager) listIndexes() ([]BackupMetadata, error) {
 	}
 
 	return backups, nil
+}
+
+// initializeIndex initializes a new backup index
+func (m *Manager) initializeIndex(backupID, sourcePath string) *BackupIndex {
+	return &BackupIndex{
+		BackupID:   backupID,
+		CreatedAt:  time.Now(),
+		SourcePath: sourcePath,
+		Files:      []FileEntry{},
+	}
+}
+
+// countFiles counts the total number of files to process
+func (m *Manager) countFiles(sourcePath, checksumMode string, verbose bool) (int64, error) {
+	var fileCount int64
+	if verbose {
+		return fileCount, nil // Skip counting in verbose mode
+	}
+
+	modeDesc := map[string]string{
+		"full":     "🔄 Analyzing directory (full integrity)...",
+		"fast":     "🔄 Analyzing directory (fast mode)...",
+		"metadata": "🔄 Analyzing directory (metadata only)...",
+	}
+	desc := modeDesc[checksumMode]
+	if desc == "" {
+		desc = "🔄 Analyzing directory..."
+	}
+	utils.ProgressStep(desc)
+
+	err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || shouldSkipFile(path, info) {
+			return nil
+		}
+		fileCount++
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("error counting files: %w", err)
+	}
+
+	return fileCount, nil
+}
+
+// setupProgressBar creates and initializes a progress bar if needed
+func (m *Manager) setupProgressBar(verbose bool, fileCount int64) *utils.ProgressBar {
+	if verbose || fileCount <= 0 {
+		return nil
+	}
+	return utils.NewProgressBar(fileCount)
+}
+
+// processFiles walks through the source directory and processes each file
+func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, index *BackupIndex, progressBar *utils.ProgressBar) error {
+	processed := int64(0)
+
+	return filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if verbose {
+				utils.Warn("Error accessing %s: %v", path, err)
+			}
+			return nil // Continue despite error
+		}
+
+		if shouldSkipFile(path, info) {
+			return nil
+		}
+
+		entry, err := NewFileEntryWithMode(path, info, checksumMode)
+		if err != nil {
+			if verbose {
+				utils.Warn("Error creating entry for %s: %v", path, err)
+			}
+			return nil
+		}
+
+		index.Files = append(index.Files, *entry)
+		index.TotalFiles++
+		index.TotalSize += entry.Size
+
+		if !verbose && progressBar != nil {
+			processed++
+			progressBar.Update(processed)
+		}
+
+		return nil
+	})
 }

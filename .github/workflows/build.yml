@@ -10,6 +10,11 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: write
+  packages: write
+  pull-requests: read
+
 env:
   GO_VERSION: '1.24'
   CGO_ENABLED: 0

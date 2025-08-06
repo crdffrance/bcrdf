@@ -1,8 +1,6 @@
 module bcrdf
 
-go 1.23.0
-
-toolchain go1.24.4
+go 1.24
 
 require (
 	github.com/aws/aws-sdk-go v1.50.0

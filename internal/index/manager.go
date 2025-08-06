@@ -58,13 +58,16 @@ func (m *Manager) CreateIndexWithMode(sourcePath, backupID, checksumMode string,
 			desc = "🔄 Analyzing directory..."
 		}
 		utils.ProgressStep(desc)
-		filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || shouldSkipFile(path, info) {
 				return nil
 			}
 			fileCount++
 			return nil
 		})
+		if err != nil {
+			return nil, fmt.Errorf("error counting files: %w", err)
+		}
 	}
 
 	// Barre de progression pour le mode non-verbeux

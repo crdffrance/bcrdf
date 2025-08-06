@@ -9,7 +9,7 @@ on:
     types: [ published ]
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.24'
   CGO_ENABLED: 0
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
 
       - name: Run linting
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.0
           golangci-lint run
 
   build:

@@ -10,7 +10,7 @@ import (
 func ReadFile(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la lecture du fichier %s: %w", path, err)
+		return nil, fmt.Errorf("error reading file %s: %w", path, err)
 	}
 	return data, nil
 }
@@ -20,12 +20,12 @@ func WriteFile(path string, data []byte) error {
 	// Créer le répertoire parent si nécessaire
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire %s: %w", dir, err)
+		return fmt.Errorf("error creating directory %s: %w", dir, err)
 	}
 
 	// Écrire le fichier
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier %s: %w", path, err)
+		return fmt.Errorf("error writing file %s: %w", path, err)
 	}
 
 	return nil
@@ -50,7 +50,7 @@ func IsDirectory(path string) bool {
 func GetFileSize(path string) (int64, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return 0, fmt.Errorf("erreur lors de la récupération de la taille du fichier %s: %w", path, err)
+		return 0, fmt.Errorf("error getting file size %s: %w", path, err)
 	}
 	return info.Size(), nil
 }
@@ -58,7 +58,7 @@ func GetFileSize(path string) (int64, error) {
 // EnsureDirectory crée un répertoire s'il n'existe pas
 func EnsureDirectory(path string) error {
 	if err := os.MkdirAll(path, 0755); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire %s: %w", path, err)
+		return fmt.Errorf("error creating directory %s: %w", path, err)
 	}
 	return nil
 }
@@ -66,7 +66,7 @@ func EnsureDirectory(path string) error {
 // RemoveFile supprime un fichier
 func RemoveFile(path string) error {
 	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("erreur lors de la suppression du fichier %s: %w", path, err)
+		return fmt.Errorf("error during la suppression du fichier %s: %w", path, err)
 	}
 	return nil
 }
@@ -74,7 +74,7 @@ func RemoveFile(path string) error {
 // RemoveDirectory supprime un répertoire et son contenu
 func RemoveDirectory(path string) error {
 	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("erreur lors de la suppression du répertoire %s: %w", path, err)
+		return fmt.Errorf("error removing directory %s: %w", path, err)
 	}
 	return nil
 }

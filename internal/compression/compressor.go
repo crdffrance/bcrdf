@@ -17,7 +17,7 @@ type Compressor struct {
 // NewCompressor crée un nouveau compresseur avec un niveau de compression
 func NewCompressor(level int) (*Compressor, error) {
 	if level < 1 || level > 9 {
-		return nil, fmt.Errorf("niveau de compression invalide: %d (doit être entre 1 et 9)", level)
+		return nil, fmt.Errorf("invalid compression level: %d (must be between 1 and 9)", level)
 	}
 
 	return &Compressor{
@@ -32,17 +32,17 @@ func (c *Compressor) Compress(data []byte) ([]byte, error) {
 	// Créer un writer GZIP avec le niveau spécifié
 	writer, err := gzip.NewWriterLevel(&buf, c.level)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du writer GZIP: %w", err)
+		return nil, fmt.Errorf("error creating GZIP writer: %w", err)
 	}
 
 	// Écrire les données
 	if _, err := writer.Write(data); err != nil {
-		return nil, fmt.Errorf("erreur lors de l'écriture des données: %w", err)
+		return nil, fmt.Errorf("error writing data: %w", err)
 	}
 
 	// Fermer le writer pour finaliser la compression
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("erreur lors de la fermeture du writer: %w", err)
+		return nil, fmt.Errorf("error closing writer: %w", err)
 	}
 
 	compressed := buf.Bytes()
@@ -57,14 +57,14 @@ func (c *Compressor) Decompress(data []byte) ([]byte, error) {
 	// Créer un reader GZIP
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du reader GZIP: %w", err)
+		return nil, fmt.Errorf("error creating GZIP reader: %w", err)
 	}
 	defer reader.Close()
 
-	// Lire toutes les données décompressées
+	// Lire toutes les données decompressed
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la décompression: %w", err)
+		return nil, fmt.Errorf("error decompressing: %w", err)
 	}
 
 	utils.Debug("Data decompressed: %d bytes -> %d bytes",
@@ -80,18 +80,18 @@ func (c *Compressor) CompressFile(inputPath, outputPath string) error {
 	// Lire le fichier source
 	data, err := utils.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture du fichier: %w", err)
+		return fmt.Errorf("error reading file: %w", err)
 	}
 
 	// Compresser les données
 	compressedData, err := c.Compress(data)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la compression: %w", err)
+		return fmt.Errorf("error compressing: %w", err)
 	}
 
-	// Écrire le fichier compressé
+	// Écrire le fichier compressed
 	if err := utils.WriteFile(outputPath, compressedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier compressé: %w", err)
+		return fmt.Errorf("error writing file compressed: %w", err)
 	}
 
 	utils.Info("Compressed file saved: %s", outputPath)
@@ -102,21 +102,21 @@ func (c *Compressor) CompressFile(inputPath, outputPath string) error {
 func (c *Compressor) DecompressFile(inputPath, outputPath string) error {
 	utils.Info("Decompressing file: %s", inputPath)
 
-	// Lire le fichier compressé
+	// Lire le fichier compressed
 	compressedData, err := utils.ReadFile(inputPath)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture du fichier compressé: %w", err)
+		return fmt.Errorf("error reading compressed file: %w", err)
 	}
 
 	// Décompresser les données
 	decompressedData, err := c.Decompress(compressedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la décompression: %w", err)
+		return fmt.Errorf("error decompressing: %w", err)
 	}
 
-	// Écrire le fichier décompressé
+	// Écrire le fichier décompressed
 	if err := utils.WriteFile(outputPath, decompressedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier décompressé: %w", err)
+		return fmt.Errorf("error writing decompressed file: %w", err)
 	}
 
 	utils.Info("Decompressed file saved: %s", outputPath)
@@ -128,18 +128,18 @@ func (c *Compressor) CompressStream(input io.Reader, output io.Writer) error {
 	// Lire toutes les données
 	data, err := io.ReadAll(input)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture des données: %w", err)
+		return fmt.Errorf("error reading data: %w", err)
 	}
 
 	// Compresser les données
 	compressedData, err := c.Compress(data)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la compression: %w", err)
+		return fmt.Errorf("error compressing: %w", err)
 	}
 
-	// Écrire les données compressées
+	// Écrire les données compressedes
 	if _, err := output.Write(compressedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture des données compressées: %w", err)
+		return fmt.Errorf("error writing data compressedes: %w", err)
 	}
 
 	return nil
@@ -147,21 +147,21 @@ func (c *Compressor) CompressStream(input io.Reader, output io.Writer) error {
 
 // DecompressStream décompresse un flux de données
 func (c *Compressor) DecompressStream(input io.Reader, output io.Writer) error {
-	// Lire toutes les données compressées
+	// Lire toutes les données compressedes
 	compressedData, err := io.ReadAll(input)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la lecture des données compressées: %w", err)
+		return fmt.Errorf("error reading data compressedes: %w", err)
 	}
 
 	// Décompresser les données
 	decompressedData, err := c.Decompress(compressedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la décompression: %w", err)
+		return fmt.Errorf("error decompressing: %w", err)
 	}
 
-	// Écrire les données décompressées
+	// Écrire les données decompressed
 	if _, err := output.Write(decompressedData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture des données décompressées: %w", err)
+		return fmt.Errorf("error writing data decompressed: %w", err)
 	}
 
 	return nil
@@ -183,7 +183,7 @@ func (c *Compressor) GetCompressionLevel() int {
 // SetCompressionLevel définit un nouveau niveau de compression
 func (c *Compressor) SetCompressionLevel(level int) error {
 	if level < 1 || level > 9 {
-		return fmt.Errorf("niveau de compression invalide: %d (doit être entre 1 et 9)", level)
+		return fmt.Errorf("invalid compression level: %d (must be between 1 and 9)", level)
 	}
 	c.level = level
 	return nil

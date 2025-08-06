@@ -78,7 +78,15 @@ func NewClient(baseURL, username, password string) (*Client, error) {
 		username: username,
 		password: password,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 5 * time.Minute, // Increased timeout for large files
+			Transport: &http.Transport{
+				TLSHandshakeTimeout:   30 * time.Second,
+				ResponseHeaderTimeout: 60 * time.Second,
+				ExpectContinueTimeout: 10 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          10,
+				MaxIdleConnsPerHost:   10,
+			},
 		},
 	}, nil
 }
@@ -91,12 +99,12 @@ func (c *Client) Upload(key string, data []byte) error {
 
 	// Créer les répertoires parents si nécessaire
 	if err := c.ensureDirectory(path.Dir(key)); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire: %w", err)
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de la requête: %w", err)
+		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
@@ -104,13 +112,13 @@ func (c *Client) Upload(key string, data []byte) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'upload: %w", err)
+		return fmt.Errorf("error during l'upload: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("échec de l'upload (status %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("upload failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	utils.Debug("Upload successful: %s", key)
@@ -125,7 +133,7 @@ func (c *Client) Download(key string) ([]byte, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création de la requête: %w", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
@@ -137,17 +145,17 @@ func (c *Client) Download(key string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		return nil, fmt.Errorf("fichier non trouvé: %s", key)
+		return nil, fmt.Errorf("file not found: %s", key)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("échec du download (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("download failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la lecture des données: %w", err)
+		return nil, fmt.Errorf("error reading data: %w", err)
 	}
 
 	utils.Debug("Download successful: %s (%d bytes)", key, len(data))
@@ -162,14 +170,14 @@ func (c *Client) DeleteObject(key string) error {
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de la requête: %w", err)
+		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la suppression: %w", err)
+		return fmt.Errorf("error during la suppression: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -181,7 +189,7 @@ func (c *Client) DeleteObject(key string) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("échec de la suppression (status %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("deletion failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	utils.Debug("Deletion successful: %s", key)
@@ -207,7 +215,7 @@ func (c *Client) ListObjects(prefix string) ([]ObjectInfo, error) {
 
 	req, err := http.NewRequest("PROPFIND", url, strings.NewReader(propfindXML))
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la création de la requête: %w", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
@@ -216,7 +224,7 @@ func (c *Client) ListObjects(prefix string) ([]ObjectInfo, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la liste: %w", err)
+		return nil, fmt.Errorf("error during la liste: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -228,12 +236,12 @@ func (c *Client) ListObjects(prefix string) ([]ObjectInfo, error) {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("échec de la liste (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("listing failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors de la lecture de la réponse: %w", err)
+		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
 	// Pour l'instant, retourner une empty list
@@ -269,7 +277,7 @@ func (c *Client) ensureDirectory(dirPath string) error {
 		currentPath += part
 
 		if err := c.createDirectory(currentPath); err != nil {
-			return fmt.Errorf("erreur lors de la création du répertoire %s: %w", currentPath, err)
+			return fmt.Errorf("error creating directory %s: %w", currentPath, err)
 		}
 	}
 
@@ -284,14 +292,14 @@ func (c *Client) createDirectory(dirPath string) error {
 
 	req, err := http.NewRequest("MKCOL", url, nil)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de la requête MKCOL: %w", err)
+		return fmt.Errorf("error creating request MKCOL: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire: %w", err)
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -310,7 +318,7 @@ func (c *Client) createDirectory(dirPath string) error {
 	default:
 		body, _ := io.ReadAll(resp.Body)
 		utils.Debug("Directory creation error (status %d): %s", resp.StatusCode, string(body))
-		return fmt.Errorf("échec de la création du répertoire (status %d)", resp.StatusCode)
+		return fmt.Errorf("directory creation failed (status %d)", resp.StatusCode)
 	}
 }
 
@@ -405,7 +413,7 @@ func (c *Client) TestConnectivity() error {
 	// Tester en faisant un PROPFIND sur la racine
 	req, err := http.NewRequest("PROPFIND", c.baseURL, strings.NewReader(`<?xml version="1.0"?><propfind xmlns="DAV:"><prop><resourcetype/></prop></propfind>`))
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de la requête de test: %w", err)
+		return fmt.Errorf("error creating request de test: %w", err)
 	}
 
 	req.SetBasicAuth(c.username, c.password)
@@ -419,12 +427,12 @@ func (c *Client) TestConnectivity() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 401 {
-		return fmt.Errorf("authentification échouée - vérifiez vos identifiants")
+		return fmt.Errorf("authentication failed - check your credentials")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("erreur de connectivité WebDAV (status %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("WebDAV connectivity error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	return nil

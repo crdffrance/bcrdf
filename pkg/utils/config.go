@@ -58,12 +58,12 @@ func LoadConfig(configFile string) (*Config, error) {
 			// Créer un fichier de configuration par défaut
 			return createDefaultConfig(configFile)
 		}
-		return nil, fmt.Errorf("erreur lors de la lecture du fichier de configuration: %w", err)
+		return nil, fmt.Errorf("error reading file de configuration: %w", err)
 	}
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("erreur lors du décodage de la configuration: %w", err)
+		return nil, fmt.Errorf("error decoding configuration: %w", err)
 	}
 
 	// Validation de la configuration
@@ -100,7 +100,7 @@ retention:
 `
 
 	if err := os.WriteFile(configFile, []byte(defaultConfig), 0644); err != nil {
-		return nil, fmt.Errorf("erreur lors de la création du fichier de configuration: %w", err)
+		return nil, fmt.Errorf("error creating configuration file: %w", err)
 	}
 
 	Info("Fichier de configuration créé: %s", configFile)
@@ -111,11 +111,11 @@ retention:
 	viper.SetConfigType("yaml")
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("erreur lors de la lecture du fichier de configuration: %w", err)
+		return nil, fmt.Errorf("error reading file de configuration: %w", err)
 	}
 
 	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("erreur lors du décodage de la configuration: %w", err)
+		return nil, fmt.Errorf("error decoding configuration: %w", err)
 	}
 
 	return &config, nil
@@ -125,7 +125,7 @@ retention:
 func validateConfig(config *Config) error {
 	// Validation du type de stockage
 	if config.Storage.Type != "s3" && config.Storage.Type != "webdav" {
-		return fmt.Errorf("type de stockage non supporté: %s", config.Storage.Type)
+		return fmt.Errorf("unsupported storage type: %s", config.Storage.Type)
 	}
 
 	// Validation spécifique au type de stockage
@@ -150,7 +150,7 @@ func validateS3Config(config *Config) error {
 		if accessKey := os.Getenv("AWS_ACCESS_KEY_ID"); accessKey != "" {
 			config.Storage.AccessKey = accessKey
 		} else {
-			return fmt.Errorf("la clé d'accès AWS est requise (AWS_ACCESS_KEY_ID ou access_key dans la config)")
+			return fmt.Errorf("AWS access key is required (AWS_ACCESS_KEY_ID ou access_key dans la config)")
 		}
 	}
 
@@ -159,7 +159,7 @@ func validateS3Config(config *Config) error {
 		if secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY"); secretKey != "" {
 			config.Storage.SecretKey = secretKey
 		} else {
-			return fmt.Errorf("la clé secrète AWS est requise (AWS_SECRET_ACCESS_KEY ou secret_key dans la config)")
+			return fmt.Errorf("AWS secret key is required (AWS_SECRET_ACCESS_KEY ou secret_key dans la config)")
 		}
 	}
 
@@ -186,15 +186,15 @@ func validateWebDAVConfig(config *Config) error {
 // validateCommonConfig valide les paramètres communs
 func validateCommonConfig(config *Config) error {
 	if config.Backup.EncryptionKey == "" || config.Backup.EncryptionKey == "your-encryption-key-here" {
-		return fmt.Errorf("la clé de chiffrement est requise")
+		return fmt.Errorf("encryption key is required")
 	}
 
 	if config.Backup.CompressionLevel < 1 || config.Backup.CompressionLevel > 22 {
-		return fmt.Errorf("le niveau de compression doit être entre 1 et 22")
+		return fmt.Errorf("compression level must be between 1 et 22")
 	}
 
 	if config.Backup.MaxWorkers < 1 {
-		return fmt.Errorf("le nombre de workers doit être supérieur à 0")
+		return fmt.Errorf("number of workers must be greater than 0")
 	}
 
 	return nil

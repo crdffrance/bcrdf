@@ -46,7 +46,7 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 
 	// Initialiser les composants
 	if err := m.initializeComponents(); err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation: %w", err)
+		return fmt.Errorf("error during l'initialisation: %w", err)
 	}
 
 	// Charger l'index de la sauvegarde
@@ -63,12 +63,12 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 		utils.ProgressStep("Preparing destination directory...")
 	}
 	if err := utils.EnsureDirectory(destinationPath); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire de destination: %w", err)
+		return fmt.Errorf("error creating directory de destination: %w", err)
 	}
 
 	// Restaurer tous les fichiers
 	if err := m.restoreFiles(backupIndex, destinationPath, verbose); err != nil {
-		return fmt.Errorf("erreur lors de la restauration des fichiers: %w", err)
+		return fmt.Errorf("error during la restauration des fichiers: %w", err)
 	}
 
 	if verbose {
@@ -97,7 +97,7 @@ func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error 
 
 	// Initialiser les composants
 	if err := m.initializeComponents(); err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation: %w", err)
+		return fmt.Errorf("error during l'initialisation: %w", err)
 	}
 
 	// Charger l'index de la sauvegarde
@@ -116,12 +116,12 @@ func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error 
 	}
 
 	if targetFile == nil {
-		return fmt.Errorf("fichier non trouvé dans la sauvegarde: %s", filePath)
+		return fmt.Errorf("file not found dans la sauvegarde: %s", filePath)
 	}
 
 	// Restaurer le fichier
 	if err := m.restoreSingleFile(*targetFile, backupID, destinationPath); err != nil {
-		return fmt.Errorf("erreur lors de la restauration du fichier: %w", err)
+		return fmt.Errorf("error during la restauration du fichier: %w", err)
 	}
 
 	utils.Info("✅ File restored: %s", filePath)
@@ -141,21 +141,21 @@ func (m *Manager) initializeComponents() error {
 
 	encryptor, err := crypto.NewEncryptorV2(m.config.Backup.EncryptionKey, algorithm)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du chiffreur: %w", err)
+		return fmt.Errorf("error during l'initialisation du chiffreur: %w", err)
 	}
 	m.encryptor = encryptor
 
 	// Initialiser le compresseur
 	compressor, err := compression.NewCompressor(m.config.Backup.CompressionLevel)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du compresseur: %w", err)
+		return fmt.Errorf("error during l'initialisation du compresseur: %w", err)
 	}
 	m.compressor = compressor
 
 	// Initialiser le client de stockage
 	storageClient, err := storage.NewStorageClient(m.config)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
+		return fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
 	}
 	m.storageClient = storageClient
 
@@ -192,7 +192,7 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 			defer func() { <-semaphore }() // Libérer le slot
 
 			if err := m.restoreSingleFile(f, backupIndex.BackupID, destinationPath); err != nil {
-				errors <- fmt.Errorf("erreur lors de la restauration de %s: %w", f.Path, err)
+				errors <- fmt.Errorf("error during la restauration de %s: %w", f.Path, err)
 			}
 
 			// Mettre à jour la progression
@@ -231,7 +231,7 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 		// Créer le répertoire
 		dirPath := filepath.Join(destinationPath, file.Path)
 		if err := utils.EnsureDirectory(dirPath); err != nil {
-			return fmt.Errorf("erreur lors de la création du répertoire: %w", err)
+			return fmt.Errorf("error creating directory: %w", err)
 		}
 		return nil
 	}
@@ -248,13 +248,13 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 	// Déchiffrer les données
 	compressedData, err := m.encryptor.Decrypt(encryptedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors du déchiffrement: %w", err)
+		return fmt.Errorf("error decrypting: %w", err)
 	}
 
 	// Décompresser les données
 	originalData, err := m.compressor.Decompress(compressedData)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la décompression: %w", err)
+		return fmt.Errorf("error decompressing: %w", err)
 	}
 
 	// Créer le chemin de destination
@@ -263,12 +263,12 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 
 	// Créer le répertoire parent si nécessaire
 	if err := utils.EnsureDirectory(destDir); err != nil {
-		return fmt.Errorf("erreur lors de la création du répertoire parent: %w", err)
+		return fmt.Errorf("error creating directory parent: %w", err)
 	}
 
 	// Écrire le fichier restauré
 	if err := utils.WriteFile(destPath, originalData); err != nil {
-		return fmt.Errorf("erreur lors de l'écriture du fichier: %w", err)
+		return fmt.Errorf("error writing file: %w", err)
 	}
 
 	// Restaurer les permissions (si possible)

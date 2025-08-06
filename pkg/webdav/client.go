@@ -312,7 +312,7 @@ func (c *Client) createDirectory(dirPath string) error {
 		utils.Debug("Directory already exists: %s", dirPath)
 		return nil
 	case 409:
-		// Conflit - le répertoire parent n'existe peut-être pas, ou le répertoire existe déjà
+		// Conflict - le répertoire parent n'existe peut-être pas, ou le répertoire existe déjà
 		utils.Debug("Conflict during creation (directory probably exists): %s", dirPath)
 		return nil
 	default:

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// EncryptionAlgorithm représente les algorithmes de chiffrement supportés
+// EncryptionAlgorithm représente les algorithms de chiffrement supportés
 type EncryptionAlgorithm string
 
 const (
@@ -32,7 +32,7 @@ func decodeKey(key string) ([]byte, error) {
 	return []byte(key), nil
 }
 
-// EncryptorV2 représente un chiffreur avec support multi-algorithmes
+// EncryptorV2 représente un chiffreur avec support multi-algorithms
 type EncryptorV2 struct {
 	key       []byte
 	algorithm EncryptionAlgorithm
@@ -75,7 +75,7 @@ func NewEncryptorV2(key string, algorithm EncryptionAlgorithm) (*EncryptorV2, er
 	return encryptor, nil
 }
 
-// initialize initialise les algorithmes de chiffrement
+// initialize initialise les algorithms de chiffrement
 func (e *EncryptorV2) initialize() error {
 	switch e.algorithm {
 	case AES256GCM:

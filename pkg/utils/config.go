@@ -99,7 +99,7 @@ retention:
   max_backups: 10
 `
 
-	if err := os.WriteFile(configFile, []byte(defaultConfig), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(defaultConfig), 0600); err != nil {
 		return nil, fmt.Errorf("error creating configuration file: %w", err)
 	}
 

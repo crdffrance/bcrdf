@@ -14,7 +14,7 @@ func TestNewFileEntry(t *testing.T) {
 
 	// Écrire des données de test
 	testData := []byte("Hello, BCRDF!")
-	if err := os.WriteFile(testFile, testData, 0644); err != nil {
+	if err := os.WriteFile(testFile, testData, 0600); err != nil {
 		t.Fatalf("Erreur lors de la création du fichier de test: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestShouldSkipFile(t *testing.T) {
 			tempDir := t.TempDir()
 			testFile := filepath.Join(tempDir, filepath.Base(tt.path))
 
-			if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+			if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
 				t.Fatalf("Erreur lors de la création du fichier de test: %v", err)
 			}
 

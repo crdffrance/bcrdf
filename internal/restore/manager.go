@@ -12,7 +12,7 @@ import (
 	"bcrdf/pkg/utils"
 )
 
-// Manager gère les opérations de restauration
+// Manager gère les opérations de restoration
 type Manager struct {
 	configFile    string
 	config        *utils.Config
@@ -22,7 +22,7 @@ type Manager struct {
 	storageClient storage.Client
 }
 
-// NewManager crée un nouveau gestionnaire de restauration
+// NewManager crée un nouveau gestionnaire de restoration
 func NewManager(configFile string) *Manager {
 	return &Manager{
 		configFile: configFile,
@@ -68,7 +68,7 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 
 	// Restaurer tous les fichiers
 	if err := m.restoreFiles(backupIndex, destinationPath, verbose); err != nil {
-		return fmt.Errorf("error during la restauration des fichiers: %w", err)
+		return fmt.Errorf("error during la restoration des fichiers: %w", err)
 	}
 
 	if verbose {
@@ -86,7 +86,7 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 
 // RestoreFile restaure un fichier spécifique
 func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error {
-	utils.Info("🔄 Restauration du fichier: %s", filePath)
+	utils.Info("🔄 Restoration du fichier: %s", filePath)
 
 	// Charger la configuration
 	config, err := utils.LoadConfig(m.configFile)
@@ -121,7 +121,7 @@ func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error 
 
 	// Restaurer le fichier
 	if err := m.restoreSingleFile(*targetFile, backupID, destinationPath); err != nil {
-		return fmt.Errorf("error during la restauration du fichier: %w", err)
+		return fmt.Errorf("error during la restoration du fichier: %w", err)
 	}
 
 	utils.Info("✅ File restored: %s", filePath)
@@ -192,7 +192,7 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 			defer func() { <-semaphore }() // Libérer le slot
 
 			if err := m.restoreSingleFile(f, backupIndex.BackupID, destinationPath); err != nil {
-				errors <- fmt.Errorf("error during la restauration de %s: %w", f.Path, err)
+				errors <- fmt.Errorf("error during la restoration de %s: %w", f.Path, err)
 			}
 
 			// Mettre à jour la progression
@@ -236,7 +236,7 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 		return nil
 	}
 
-	utils.Debug("Restauration du fichier: %s", file.Path)
+	utils.Debug("Restoration du fichier: %s", file.Path)
 
 	// Charger les données depuis le stockage
 	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
@@ -251,7 +251,7 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 		return fmt.Errorf("error decrypting: %w", err)
 	}
 
-	// Décompresser les données
+	// Decompress les données
 	originalData, err := m.compressor.Decompress(compressedData)
 	if err != nil {
 		return fmt.Errorf("error decompressing: %w", err)
@@ -282,7 +282,7 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 
 // restorePermissions restaure les permissions d'un fichier
 func (m *Manager) restorePermissions(filePath string, file index.FileEntry) error {
-	// TODO: Implémenter la restauration des permissions
+	// TODO: Implémenter la restoration des permissions
 	// Pour l'instant, on utilise les permissions par défaut
 	return nil
 }

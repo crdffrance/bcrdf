@@ -380,7 +380,7 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 		return fmt.Errorf("error during la lecture: %w", err)
 	}
 
-	// Compresser les données
+	// Compress les données
 	compressedData, err := m.compressor.Compress(data)
 	if err != nil {
 		return fmt.Errorf("error compressing: %w", err)

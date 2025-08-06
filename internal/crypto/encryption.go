@@ -50,7 +50,7 @@ func (e *Encryptor) Encrypt(data []byte) ([]byte, error) {
 	// Chiffrer les données
 	ciphertext := gcm.Seal(nonce, nonce, data, nil)
 
-	utils.Debug("Données chiffrées: %d bytes -> %d bytes", len(data), len(ciphertext))
+	utils.Debug("Data encrypted: %d bytes -> %d bytes", len(data), len(ciphertext))
 	return ciphertext, nil
 }
 
@@ -82,7 +82,7 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 		return nil, fmt.Errorf("erreur lors du déchiffrement: %w", err)
 	}
 
-	utils.Debug("Données déchiffrées: %d bytes -> %d bytes", len(ciphertext), len(plaintext))
+	utils.Debug("Data decrypted: %d bytes -> %d bytes", len(ciphertext), len(plaintext))
 	return plaintext, nil
 }
 
@@ -107,13 +107,13 @@ func (e *Encryptor) EncryptFile(inputPath, outputPath string) error {
 		return fmt.Errorf("erreur lors de l'écriture du fichier chiffré: %w", err)
 	}
 
-	utils.Info("Fichier chiffré sauvegardé: %s", outputPath)
+	utils.Info("Encrypted file saved: %s", outputPath)
 	return nil
 }
 
 // DecryptFile déchiffre un fichier complet
 func (e *Encryptor) DecryptFile(inputPath, outputPath string) error {
-	utils.Info("Déchiffrement du fichier: %s", inputPath)
+	utils.Info("Decrypting file: %s", inputPath)
 
 	// Lire le fichier chiffré
 	encryptedData, err := utils.ReadFile(inputPath)
@@ -132,7 +132,7 @@ func (e *Encryptor) DecryptFile(inputPath, outputPath string) error {
 		return fmt.Errorf("erreur lors de l'écriture du fichier déchiffré: %w", err)
 	}
 
-	utils.Info("Fichier déchiffré sauvegardé: %s", outputPath)
+	utils.Info("Decrypted file saved: %s", outputPath)
 	return nil
 }
 

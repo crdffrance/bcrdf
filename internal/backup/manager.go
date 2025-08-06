@@ -9,18 +9,18 @@ import (
 	"bcrdf/internal/compression"
 	"bcrdf/internal/crypto"
 	"bcrdf/internal/index"
-	"bcrdf/pkg/s3"
+	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
 
 // Manager gère les opérations de sauvegarde
 type Manager struct {
-	configFile string
-	config     *utils.Config
-	indexMgr   *index.Manager
-	encryptor  *crypto.EncryptorV2
-	compressor *compression.Compressor
-	s3Client   *s3.Client
+	configFile    string
+	config        *utils.Config
+	indexMgr      *index.Manager
+	encryptor     *crypto.EncryptorV2
+	compressor    *compression.Compressor
+	storageClient storage.Client
 }
 
 // NewManager crée un nouveau gestionnaire de sauvegarde
@@ -31,8 +31,12 @@ func NewManager(configFile string) *Manager {
 }
 
 // CreateBackup effectue une sauvegarde complète
-func (m *Manager) CreateBackup(sourcePath, backupName string) error {
-	utils.Info("🚀 Début de la sauvegarde: %s", backupName)
+func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) error {
+	if verbose {
+		utils.Info("🚀 Starting backup: %s", backupName)
+	} else {
+		utils.ProgressStep(fmt.Sprintf("🚀 Starting backup: %s", backupName))
+	}
 	startTime := time.Now()
 
 	// Charger la configuration
@@ -55,21 +59,39 @@ func (m *Manager) CreateBackup(sourcePath, backupName string) error {
 	// Créer l'ID de sauvegarde
 	backupID := fmt.Sprintf("%s-%s", backupName, time.Now().Format("20060102-150405"))
 
-	// Créer l'index de la sauvegarde actuelle
-	currentIndex, err := m.indexMgr.CreateIndex(sourcePath, backupID)
+	// Créer l'index de la sauvegarde actuelle avec le mode de checksum configuré
+	checksumMode := m.config.Backup.ChecksumMode
+	if checksumMode == "" {
+		checksumMode = "fast" // Mode par défaut
+	}
+
+	if !verbose {
+		utils.ProgressStep("Creating index...")
+	}
+	currentIndex, err := m.indexMgr.CreateIndexWithMode(sourcePath, backupID, checksumMode, verbose)
 	if err != nil {
 		return fmt.Errorf("erreur lors de la création de l'index: %w", err)
 	}
 
 	// Chercher la sauvegarde précédente pour comparaison
+	if !verbose {
+		utils.ProgressStep("Searching for previous backup...")
+	}
 	previousIndex, err := m.findPreviousBackup()
 	if err != nil {
-		utils.Warn("Aucune sauvegarde précédente trouvée, sauvegarde complète")
+		if verbose {
+			utils.Warn("No previous backup found, performing full backup")
+		} else {
+			utils.ProgressInfo("First backup - performing full backup")
+		}
 	}
 
 	// Comparer les index pour déterminer les changements
 	var diff *index.IndexDiff
 	if previousIndex != nil {
+		if !verbose {
+			utils.ProgressStep("Comparing indexes...")
+		}
 		diff, err = m.indexMgr.CompareIndexes(currentIndex, previousIndex)
 		if err != nil {
 			return fmt.Errorf("erreur lors de la comparaison des index: %w", err)
@@ -84,7 +106,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string) error {
 	}
 
 	// Sauvegarder les fichiers modifiés/ajoutés
-	if err := m.backupFiles(diff.Added, diff.Modified, backupID); err != nil {
+	if err := m.backupFiles(diff.Added, diff.Modified, backupID, verbose); err != nil {
 		return fmt.Errorf("erreur lors de la sauvegarde des fichiers: %w", err)
 	}
 
@@ -93,14 +115,24 @@ func (m *Manager) CreateBackup(sourcePath, backupName string) error {
 	currentIndex.EncryptedSize = m.calculateEncryptedSize(diff.Added, diff.Modified)
 
 	// Sauvegarder l'index
+	if !verbose {
+		utils.ProgressStep("Saving index...")
+	}
 	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
 		return fmt.Errorf("erreur lors de la sauvegarde de l'index: %w", err)
 	}
 
 	duration := time.Since(startTime)
-	utils.Info("✅ Sauvegarde terminée en %v", duration)
-	utils.Info("📊 Statistiques: %d fichiers ajoutés, %d modifiés, %d supprimés",
-		len(diff.Added), len(diff.Modified), len(diff.Deleted))
+
+	if verbose {
+		utils.Info("✅ Backup completed in %v", duration)
+		utils.Info("📊 Statistics: %d files added, %d modified, %d deleted",
+			len(diff.Added), len(diff.Modified), len(diff.Deleted))
+	} else {
+		utils.ProgressSuccess(fmt.Sprintf("✅ Backup completed in %v", duration))
+		utils.ProgressInfo(fmt.Sprintf("📊 %d added, %d modified, %d deleted",
+			len(diff.Added), len(diff.Modified), len(diff.Deleted)))
+	}
 
 	return nil
 }
@@ -130,7 +162,7 @@ func (m *Manager) DeleteBackup(backupID string) error {
 		return fmt.Errorf("erreur lors de la suppression de l'index: %w", err)
 	}
 
-	utils.Info("✅ Sauvegarde supprimée: %s", backupID)
+	utils.Info("✅ Backup deleted: %s", backupID)
 	return nil
 }
 
@@ -167,18 +199,12 @@ func (m *Manager) initializeComponents() error {
 	}
 	m.compressor = compressor
 
-	// Initialiser le client S3
-	s3Client, err := s3.NewClient(
-		m.config.Storage.AccessKey,
-		m.config.Storage.SecretKey,
-		m.config.Storage.Region,
-		m.config.Storage.Endpoint,
-		m.config.Storage.Bucket,
-	)
+	// Initialiser le client de stockage
+	storageClient, err := storage.NewStorageClient(m.config)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+		return fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 	}
-	m.s3Client = s3Client
+	m.storageClient = storageClient
 
 	return nil
 }
@@ -195,29 +221,29 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 	}
 
 	// Initialiser le client S3 si nécessaire
-	if m.s3Client == nil {
-		s3Client, err := s3.NewClient(
-			m.config.Storage.AccessKey,
-			m.config.Storage.SecretKey,
-			m.config.Storage.Region,
-			m.config.Storage.Endpoint,
-			m.config.Storage.Bucket,
-		)
+	if m.storageClient == nil {
+		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+			return nil, fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 		}
-		m.s3Client = s3Client
+		m.storageClient = storageClient
 	}
 
 	// Lister les index disponibles
-	keys, err := m.s3Client.ListObjects("indexes/")
+	objects, err := m.storageClient.ListObjects("indexes/")
 	if err != nil {
 		utils.Warn("Impossible de lister les index: %v", err)
 		return nil, nil
 	}
 
+	// Extraire les clés des objets
+	keys := make([]string, len(objects))
+	for i, obj := range objects {
+		keys[i] = obj.Key
+	}
+
 	if len(keys) == 0 {
-		utils.Debug("Aucun index trouvé, première sauvegarde")
+		utils.Debug("No index found, first backup")
 		return nil, nil
 	}
 
@@ -246,20 +272,20 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 	}
 
 	if latestKey == "" {
-		utils.Debug("Aucun index valide trouvé")
+		utils.Debug("No valid index found")
 		return nil, nil
 	}
 
 	// Extraire l'ID de la sauvegarde la plus récente
 	backupID := strings.TrimSuffix(strings.TrimPrefix(latestKey, "indexes/"), ".json")
 
-	utils.Info("Sauvegarde précédente trouvée: %s (créée le %s)",
+	utils.Info("Previous backup found: %s (created on %s)",
 		backupID, latestTime.Format("2006-01-02 15:04:05"))
 
 	// Charger l'index de la sauvegarde précédente
 	previousIndex, err := m.indexMgr.LoadIndex(backupID)
 	if err != nil {
-		utils.Warn("Impossible de charger l'index de la sauvegarde précédente: %v", err)
+		utils.Warn("Unable to load previous backup index: %v", err)
 		return nil, nil
 	}
 
@@ -267,20 +293,37 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 }
 
 // backupFiles sauvegarde les fichiers spécifiés
-func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string) error {
+func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string, verbose bool) error {
 	allFiles := append(added, modified...)
 
 	if len(allFiles) == 0 {
-		utils.Info("Aucun fichier à sauvegarder")
+		if verbose {
+			utils.Info("No files to backup")
+		} else {
+			utils.ProgressInfo("No files to backup")
+		}
 		return nil
 	}
 
-	utils.Info("Sauvegarde de %d fichiers", len(allFiles))
+	if verbose {
+		utils.Info("Sauvegarde de %d fichiers", len(allFiles))
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Backing up %d files", len(allFiles)))
+	}
 
 	// Créer un pool de workers pour le traitement parallèle
 	semaphore := make(chan struct{}, m.config.Backup.MaxWorkers)
 	var wg sync.WaitGroup
 	errors := make(chan error, len(allFiles))
+
+	// Barre de progression pour le mode non-verbeux
+	var progressBar *utils.ProgressBar
+	if !verbose {
+		progressBar = utils.NewProgressBar(int64(len(allFiles)))
+	}
+
+	completed := int64(0)
+	var completedMutex sync.Mutex
 
 	for _, file := range allFiles {
 		wg.Add(1)
@@ -292,15 +335,32 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 			if err := m.backupSingleFile(f, backupID); err != nil {
 				errors <- fmt.Errorf("erreur lors de la sauvegarde de %s: %w", f.Path, err)
 			}
+
+			// Mettre à jour la progression
+			if !verbose {
+				completedMutex.Lock()
+				completed++
+				progressBar.Update(completed)
+				completedMutex.Unlock()
+			}
 		}(file)
 	}
 
 	wg.Wait()
 	close(errors)
 
+	// Terminer la barre de progression
+	if !verbose && progressBar != nil {
+		progressBar.Finish()
+	}
+
 	// Vérifier s'il y a eu des erreurs
 	for err := range errors {
-		utils.Error("%v", err)
+		if verbose {
+			utils.Error("%v", err)
+		} else {
+			utils.ProgressError(err.Error())
+		}
 	}
 
 	return nil
@@ -341,7 +401,7 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 	// Mettre à jour la clé de stockage dans l'entrée du fichier
 	file.StorageKey = storageKey
 
-	utils.Debug("Fichier sauvegardé: %s -> %s", file.Path, storageKey)
+	utils.Debug("File backed up: %s -> %s", file.Path, storageKey)
 	return nil
 }
 
@@ -359,14 +419,14 @@ func (m *Manager) calculateEncryptedSize(added, modified []index.FileEntry) int6
 
 // deleteBackupFiles supprime les fichiers de données d'une sauvegarde
 func (m *Manager) deleteBackupFiles(backupIndex *index.BackupIndex) error {
-	utils.Info("Suppression des fichiers de données pour: %s", backupIndex.BackupID)
+	utils.Info("Deleting data files for: %s", backupIndex.BackupID)
 
 	for _, file := range backupIndex.Files {
 		if file.StorageKey != "" {
-			if err := m.s3Client.DeleteObject(file.StorageKey); err != nil {
+			if err := m.storageClient.DeleteObject(file.StorageKey); err != nil {
 				utils.Warn("Impossible de supprimer le fichier %s: %v", file.StorageKey, err)
 			} else {
-				utils.Debug("Fichier supprimé: %s", file.StorageKey)
+				utils.Debug("File deleted: %s", file.StorageKey)
 			}
 		}
 	}
@@ -379,15 +439,15 @@ func (m *Manager) deleteBackupIndex(backupID string) error {
 	utils.Info("Suppression de l'index pour: %s", backupID)
 
 	indexKey := fmt.Sprintf("indexes/%s.json", backupID)
-	if err := m.s3Client.DeleteObject(indexKey); err != nil {
+	if err := m.storageClient.DeleteObject(indexKey); err != nil {
 		return fmt.Errorf("erreur lors de la suppression de l'index: %w", err)
 	}
 
-	utils.Debug("Index supprimé: %s", indexKey)
+	utils.Debug("Index deleted: %s", indexKey)
 	return nil
 }
 
 // saveToStorage sauvegarde des données dans le stockage
 func (m *Manager) saveToStorage(key string, data []byte) error {
-	return m.s3Client.Upload(key, data)
+	return m.storageClient.Upload(key, data)
 }

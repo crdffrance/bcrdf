@@ -1,21 +1,41 @@
-# Configuration BCRDF - Système de sauvegarde index-based
-# Copiez ce fichier vers config.yaml et configurez vos paramètres
-
+# BCRDF Configuration Example - S3 Storage
 storage:
   type: "s3"
-  bucket: "mon-bucket-sauvegarde"
+  bucket: "my-backup-bucket"
   region: "eu-west-3"
   endpoint: "https://s3.eu-west-3.amazonaws.com"
-  access_key: "VOTRE_CLE_ACCESS"
-  secret_key: "VOTRE_CLE_SECRETE"
+  access_key: "YOUR_ACCESS_KEY"
+  secret_key: "YOUR_SECRET_KEY"
+  # WebDAV fields (unused for S3)
+  username: ""
+  password: ""
 
 backup:
-  source_path: "/chemin/vers/sauvegarde"
-  encryption_key: "VOTRE_CLE_CHIFFREMENT_32_BYTES"
+  source_path: "/path/to/backup"
+  encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"  # 32 bytes hex for AES-256-GCM and XChaCha20
   encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
-  compression_level: 3  # Niveau GZIP (1-9)
-  max_workers: 10  # Nombre de workers parallèles
+  compression_level: 3  # GZIP level (1-9)
+  max_workers: 10  # Number of parallel workers
+  checksum_mode: "fast"  # Options: "full" (slow, secure), "fast" (recommended), "metadata" (fastest)
 
 retention:
-  days: 30  # Durée de rétention en jours
-  max_backups: 10  # Nombre maximum de sauvegardes 
+  days: 30  # Retention period in days
+  max_backups: 10  # Maximum number of backups
+
+# Popular S3-compatible services:
+# 
+# AWS S3:
+#   endpoint: "https://s3.region.amazonaws.com"
+#   region: "us-east-1", "eu-west-1", etc.
+#
+# Scaleway:
+#   endpoint: "https://s3.fr-par.scw.cloud"
+#   region: "fr-par", "nl-ams", etc.
+#
+# DigitalOcean Spaces:
+#   endpoint: "https://region.digitaloceanspaces.com"
+#   region: "nyc3", "fra1", etc.
+#
+# MinIO:
+#   endpoint: "https://your-minio-server.com"
+#   region: "us-east-1" (or any value)

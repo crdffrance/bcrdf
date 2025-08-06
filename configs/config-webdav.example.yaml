@@ -1,0 +1,42 @@
+# BCRDF Configuration Example - WebDAV Storage
+# Example configuration for WebDAV server (Nextcloud, ownCloud, etc.)
+
+storage:
+  type: "webdav"
+  # WebDAV server URL (examples for different services)
+  endpoint: "https://your-nextcloud.com/remote.php/dav/files/username/"
+  # endpoint: "https://your-owncloud.com/remote.php/webdav/"
+  # endpoint: "https://webdav.example.com/dav/"
+  
+  # WebDAV credentials
+  username: "YOUR_USERNAME"
+  password: "YOUR_PASSWORD"
+  
+  # S3 fields (unused for WebDAV)
+  bucket: ""
+  region: ""
+  access_key: ""
+  secret_key: ""
+
+backup:
+  source_path: "/path/to/backup"
+  # Encryption key (32 bytes in hexadecimal) - generate a new one!
+  encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
+  compression_level: 3  # GZIP level (1-9)
+  max_workers: 10
+  checksum_mode: "fast"  # Options: "full" (slow, secure), "fast" (recommended), "metadata" (fastest)
+
+retention:
+  days: 30
+  max_backups: 10
+
+# Popular WebDAV endpoint examples:
+#
+# Nextcloud: https://your-nextcloud.com/remote.php/dav/files/username/
+# ownCloud:  https://your-owncloud.com/remote.php/webdav/
+# Box.com:   https://dav.box.com/dav/
+# 4shared:   https://webdav.4shared.com/
+# pCloud:    https://webdav.pcloud.com/
+#
+# Note: Replace 'username' with your actual username

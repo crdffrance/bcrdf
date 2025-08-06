@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"bcrdf/pkg/s3"
+	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
 
 // Manager gère les opérations sur les index
 type Manager struct {
-	configFile string
-	config     *utils.Config
-	s3Client   *s3.Client
+	configFile    string
+	config        *utils.Config
+	storageClient storage.Client
 }
 
 // NewManager crée un nouveau gestionnaire d'index
@@ -28,8 +28,15 @@ func NewManager(configFile string) *Manager {
 }
 
 // CreateIndex crée un nouvel index pour un répertoire
-func (m *Manager) CreateIndex(sourcePath, backupID string) (*BackupIndex, error) {
-	utils.Info("Création de l'index pour: %s", sourcePath)
+func (m *Manager) CreateIndex(sourcePath, backupID string, verbose bool) (*BackupIndex, error) {
+	return m.CreateIndexWithMode(sourcePath, backupID, "fast", verbose)
+}
+
+// CreateIndexWithMode crée un nouvel index avec un mode de checksum spécifique
+func (m *Manager) CreateIndexWithMode(sourcePath, backupID, checksumMode string, verbose bool) (*BackupIndex, error) {
+	if verbose {
+		utils.Info("Creating index for: %s (mode: %s)", sourcePath, checksumMode)
+	}
 
 	index := &BackupIndex{
 		BackupID:   backupID,
@@ -38,10 +45,42 @@ func (m *Manager) CreateIndex(sourcePath, backupID string) (*BackupIndex, error)
 		Files:      []FileEntry{},
 	}
 
+	// Compter d'abord le nombre de fichiers pour la barre de progression
+	var fileCount int64
+	if !verbose {
+		modeDesc := map[string]string{
+			"full":     "🔄 Analyzing directory (full integrity)...",
+			"fast":     "🔄 Analyzing directory (fast mode)...",
+			"metadata": "🔄 Analyzing directory (metadata only)...",
+		}
+		desc := modeDesc[checksumMode]
+		if desc == "" {
+			desc = "🔄 Analyzing directory..."
+		}
+		utils.ProgressStep(desc)
+		filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || shouldSkipFile(path, info) {
+				return nil
+			}
+			fileCount++
+			return nil
+		})
+	}
+
+	// Barre de progression pour le mode non-verbeux
+	var progressBar *utils.ProgressBar
+	if !verbose && fileCount > 0 {
+		progressBar = utils.NewProgressBar(fileCount)
+	}
+
+	processed := int64(0)
+
 	// Parcourir récursivement le répertoire source
 	err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			utils.Warn("Erreur lors de l'accès à %s: %v", path, err)
+			if verbose {
+				utils.Warn("Error accessing %s: %v", path, err)
+			}
 			return nil // Continuer malgré l'erreur
 		}
 
@@ -50,16 +89,24 @@ func (m *Manager) CreateIndex(sourcePath, backupID string) (*BackupIndex, error)
 			return nil
 		}
 
-		// Créer une entrée pour ce fichier
-		entry, err := NewFileEntry(path, info)
+		// Créer une entrée pour ce fichier avec le mode de checksum spécifié
+		entry, err := NewFileEntryWithMode(path, info, checksumMode)
 		if err != nil {
-			utils.Warn("Erreur lors de la création de l'entrée pour %s: %v", path, err)
+			if verbose {
+				utils.Warn("Error creating entry for %s: %v", path, err)
+			}
 			return nil
 		}
 
 		index.Files = append(index.Files, *entry)
 		index.TotalFiles++
 		index.TotalSize += entry.Size
+
+		// Mettre à jour la progression
+		if !verbose && progressBar != nil {
+			processed++
+			progressBar.Update(processed)
+		}
 
 		return nil
 	})
@@ -68,8 +115,17 @@ func (m *Manager) CreateIndex(sourcePath, backupID string) (*BackupIndex, error)
 		return nil, fmt.Errorf("erreur lors du parcours du répertoire: %w", err)
 	}
 
-	utils.Info("Index créé avec %d fichiers, taille totale: %d bytes",
-		index.TotalFiles, index.TotalSize)
+	// Terminer la barre de progression
+	if !verbose && progressBar != nil {
+		progressBar.Finish()
+	}
+
+	if verbose {
+		utils.Info("Index created with %d files, total size: %d bytes",
+			index.TotalFiles, index.TotalSize)
+	} else {
+		utils.ProgressDone(fmt.Sprintf("Index created with %d fichiers", index.TotalFiles))
+	}
 
 	return index, nil
 }
@@ -86,25 +142,19 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 	}
 
 	// Initialiser le client S3 si nécessaire
-	if m.s3Client == nil {
-		s3Client, err := s3.NewClient(
-			m.config.Storage.AccessKey,
-			m.config.Storage.SecretKey,
-			m.config.Storage.Region,
-			m.config.Storage.Endpoint,
-			m.config.Storage.Bucket,
-		)
+	if m.storageClient == nil {
+		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+			return nil, fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 		}
-		m.s3Client = s3Client
+		m.storageClient = storageClient
 	}
 
 	// Construire le chemin de l'index
 	indexKey := fmt.Sprintf("indexes/%s.json", backupID)
 
 	// Charger depuis S3
-	data, err := m.s3Client.Download(indexKey)
+	data, err := m.storageClient.Download(indexKey)
 	if err != nil {
 		return nil, fmt.Errorf("erreur lors du chargement de l'index: %w", err)
 	}
@@ -128,19 +178,13 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 		m.config = config
 	}
 
-	// Initialiser le client S3 si nécessaire
-	if m.s3Client == nil {
-		s3Client, err := s3.NewClient(
-			m.config.Storage.AccessKey,
-			m.config.Storage.SecretKey,
-			m.config.Storage.Region,
-			m.config.Storage.Endpoint,
-			m.config.Storage.Bucket,
-		)
+	// Initialiser le client de stockage si nécessaire
+	if m.storageClient == nil {
+		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+			return fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 		}
-		m.s3Client = s3Client
+		m.storageClient = storageClient
 	}
 
 	// Sérialiser l'index
@@ -151,11 +195,11 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 
 	// Sauvegarder dans S3
 	indexKey := fmt.Sprintf("indexes/%s.json", index.BackupID)
-	if err := m.s3Client.Upload(indexKey, data); err != nil {
+	if err := m.storageClient.Upload(indexKey, data); err != nil {
 		return fmt.Errorf("erreur lors de la sauvegarde de l'index: %w", err)
 	}
 
-	utils.Info("Index sauvegardé: %s", indexKey)
+	utils.Info("Index saved: %s", indexKey)
 	return nil
 }
 
@@ -192,15 +236,15 @@ func (m *Manager) CompareIndexes(current, previous *BackupIndex) (*IndexDiff, er
 		}
 	}
 
-	// Trouver les fichiers supprimés
+	// Trouver les fichiers deleted
 	for path, previousFile := range previousMap {
 		if _, exists := currentMap[path]; !exists {
-			// Fichier supprimé
+			// File deleted
 			diff.Deleted = append(diff.Deleted, previousFile)
 		}
 	}
 
-	utils.Info("Différences trouvées: %d ajoutés, %d modifiés, %d supprimés",
+	utils.Info("Differences found: %d added, %d modified, %d deleted",
 		len(diff.Added), len(diff.Modified), len(diff.Deleted))
 
 	return diff, nil
@@ -220,7 +264,7 @@ func (m *Manager) ListBackups(backupID string) error {
 	}
 
 	if len(indexes) == 0 {
-		utils.Info("Aucune sauvegarde trouvée")
+		utils.Info("No backup found")
 		return nil
 	}
 
@@ -329,24 +373,24 @@ func (m *Manager) listIndexes() ([]BackupMetadata, error) {
 	}
 
 	// Initialiser le client S3 si nécessaire
-	if m.s3Client == nil {
-		s3Client, err := s3.NewClient(
-			m.config.Storage.AccessKey,
-			m.config.Storage.SecretKey,
-			m.config.Storage.Region,
-			m.config.Storage.Endpoint,
-			m.config.Storage.Bucket,
-		)
+	if m.storageClient == nil {
+		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+			return nil, fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 		}
-		m.s3Client = s3Client
+		m.storageClient = storageClient
 	}
 
 	// Lister les objets dans le préfixe indexes/
-	keys, err := m.s3Client.ListObjects("indexes/")
+	objects, err := m.storageClient.ListObjects("indexes/")
 	if err != nil {
 		return nil, fmt.Errorf("erreur lors de la liste des index: %w", err)
+	}
+
+	// Extraire les clés des objets
+	keys := make([]string, len(objects))
+	for i, obj := range objects {
+		keys[i] = obj.Key
 	}
 
 	var backups []BackupMetadata

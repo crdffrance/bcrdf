@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 
@@ -18,6 +19,19 @@ const (
 	XChaCha20Poly1305 EncryptionAlgorithm = "xchacha20-poly1305"
 )
 
+// decodeKey décode une clé hexadécimale ou retourne les bytes bruts
+func decodeKey(key string) ([]byte, error) {
+	// Si la clé fait 64 caractères et ne contient que des caractères hex, c'est probablement une clé hex
+	if len(key) == 64 {
+		if _, err := hex.DecodeString(key); err == nil {
+			return hex.DecodeString(key)
+		}
+	}
+
+	// Sinon, traiter comme des bytes bruts
+	return []byte(key), nil
+}
+
 // EncryptorV2 représente un chiffreur avec support multi-algorithmes
 type EncryptorV2 struct {
 	key       []byte
@@ -28,7 +42,11 @@ type EncryptorV2 struct {
 
 // NewEncryptorV2 crée un nouveau chiffreur avec l'algorithme spécifié
 func NewEncryptorV2(key string, algorithm EncryptionAlgorithm) (*EncryptorV2, error) {
-	keyBytes := []byte(key)
+	// Décoder la clé hexadécimale si nécessaire
+	keyBytes, err := decodeKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("erreur lors du décodage de la clé: %w", err)
+	}
 
 	// Valider la longueur de la clé selon l'algorithme
 	switch algorithm {
@@ -166,7 +184,10 @@ func (e *EncryptorV2) GetAlgorithm() EncryptionAlgorithm {
 
 // ValidateKeyV2 valide une clé pour l'algorithme spécifié
 func ValidateKeyV2(key string, algorithm EncryptionAlgorithm) error {
-	keyBytes := []byte(key)
+	keyBytes, err := decodeKey(key)
+	if err != nil {
+		return fmt.Errorf("erreur lors du décodage de la clé: %w", err)
+	}
 
 	switch algorithm {
 	case AES256GCM, XChaCha20Poly1305:

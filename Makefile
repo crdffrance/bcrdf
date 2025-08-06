@@ -1,4 +1,4 @@
-# Makefile pour BCRDF - Système de sauvegarde index-based
+# Makefile for BCRDF - Index-based backup system
 # Usage: make [target]
 
 # Variables
@@ -7,159 +7,197 @@ BUILD_DIR=build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.Version=${VERSION}"
 
-# Couleurs pour les messages
+# Colors for messages
 GREEN=\033[0;32m
 YELLOW=\033[1;33m
 RED=\033[0;31m
 NC=\033[0m # No Color
 
-.PHONY: help build clean test install dev-build lint format init-config example-backup example-restore example-list setup clean-all build-all build-release
+.PHONY: help build clean test install dev-build lint format setup clean-all build-all
 
-# Cible par défaut
+# Default target
 all: build
 
-# Afficher l'aide
+# Show help
 help:
-	@echo "$(GREEN)BCRDF - Système de sauvegarde index-based$(NC)"
+	@echo "$(GREEN)BCRDF - Index-based backup system$(NC)"
 	@echo ""
-	@echo "$(YELLOW)Commandes disponibles:$(NC)"
-	@echo "  build          - Compiler le projet"
-	@echo "  clean          - Nettoyer les fichiers temporaires"
-	@echo "  test           - Exécuter les tests"
-	@echo "  install        - Installer BCRDF"
-	@echo "  dev-build      - Compilation rapide pour développement"
-	@echo "  lint           - Vérifier le code avec golangci-lint"
-	@echo "  format         - Formater le code avec gofmt"
-	@echo "  init-config    - Initialiser la configuration"
-	@echo "  setup          - Installation complète"
-	@echo "  clean-all      - Nettoyage complet"
-	@echo "  example-*      - Exemples d'utilisation"
-	@echo "  build-all      - Compilation multi-architectures"
-	@echo "  build-release  - Compilation pour release"
+	@echo "$(YELLOW)Available commands:$(NC)"
+	@echo "  build          - Build the project"
+	@echo "  clean          - Clean temporary files"
+	@echo "  test           - Run tests"
+	@echo "  install        - Install BCRDF"
+	@echo "  dev-build      - Quick build for development"
+	@echo "  lint           - Run linter"
+	@echo "  format         - Format code"
+	@echo "  setup          - Setup development environment"
+	@echo "  build-all      - Build for all platforms"
+	@echo "  clean-all      - Deep clean"
+	@echo ""
+	@echo "$(YELLOW)Usage examples:$(NC)"
+	@echo "  make build     # Build BCRDF"
+	@echo "  make test      # Run tests"
+	@echo "  make install   # Install to system"
 
-# Compiler le projet
+# Build the project
 build:
-	@echo "$(GREEN)🔨 Compilation de BCRDF...$(NC)"
+	@echo "$(YELLOW)🔨 Building BCRDF...$(NC)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/bcrdf/main.go
-	@echo "$(GREEN)✅ Compilation réussie: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
+	@echo "$(GREEN)✅ Binary created: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
 
-# Compilation rapide pour développement
+# Quick development build
 dev-build:
-	@echo "$(YELLOW)⚡ Compilation rapide...$(NC)"
+	@echo "$(YELLOW)⚡ Quick build...$(NC)"
 	go build -o $(BINARY_NAME) cmd/bcrdf/main.go
-	@echo "$(GREEN)✅ Binaire créé: $(BINARY_NAME)$(NC)"
+	@echo "$(GREEN)✅ Binary created: $(BINARY_NAME)$(NC)"
 
-# Nettoyer les fichiers temporaires
+# Clean temporary files
 clean:
-	@echo "$(YELLOW)🧹 Nettoyage...$(NC)"
+	@echo "$(YELLOW)🧹 Cleaning...$(NC)"
 	rm -f $(BINARY_NAME)
 	rm -f *.exe
 	rm -f *.test
 	rm -rf restored-*/
 	rm -f *.log
 	rm -f *.tmp
-	@echo "$(GREEN)✅ Nettoyage terminé$(NC)"
+	@echo "$(GREEN)✅ Cleanup completed$(NC)"
 
-# Nettoyage complet
+# Deep clean
 clean-all: clean
-	@echo "$(YELLOW)🧹 Nettoyage complet...$(NC)"
+	@echo "$(YELLOW)🧹 Deep cleaning...$(NC)"
 	rm -rf $(BUILD_DIR)
-	rm -f coverage.txt
-	rm -f coverage.html
+	rm -rf dist
 	go clean -cache
+	go clean -testcache
 	go clean -modcache
-	@echo "$(GREEN)✅ Nettoyage complet terminé$(NC)"
+	@echo "$(GREEN)✅ Deep cleanup completed$(NC)"
 
-# Exécuter les tests
+# Run tests
 test:
-	@echo "$(YELLOW)🧪 Exécution des tests...$(NC)"
+	@echo "$(YELLOW)🧪 Running tests...$(NC)"
 	go test -v ./...
-	@echo "$(GREEN)✅ Tests terminés$(NC)"
+	@echo "$(GREEN)✅ Tests completed$(NC)"
 
-# Tests avec couverture
+# Run tests with coverage
 test-coverage:
-	@echo "$(YELLOW)🧪 Tests avec couverture...$(NC)"
-	go test -v -coverprofile=coverage.txt ./...
-	go tool cover -html=coverage.txt -o coverage.html
-	@echo "$(GREEN)✅ Rapport de couverture généré: coverage.html$(NC)"
+	@echo "$(YELLOW)🧪 Running tests with coverage...$(NC)"
+	go test -v -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "$(GREEN)✅ Coverage report generated: coverage.html$(NC)"
 
-# Installer BCRDF
+# Install BCRDF
 install: build
-	@echo "$(YELLOW)📦 Installation...$(NC)"
-	cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
-	@echo "$(GREEN)✅ BCRDF installé dans /usr/local/bin/$(NC)"
+	@echo "$(YELLOW)📦 Installing BCRDF...$(NC)"
+	sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
+	sudo chmod +x /usr/local/bin/$(BINARY_NAME)
+	@echo "$(GREEN)✅ BCRDF installed to /usr/local/bin/$(NC)"
 
-# Vérifier le code avec golangci-lint
+# Uninstall BCRDF
+uninstall:
+	@echo "$(YELLOW)🗑️  Uninstalling BCRDF...$(NC)"
+	sudo rm -f /usr/local/bin/$(BINARY_NAME)
+	@echo "$(GREEN)✅ BCRDF uninstalled$(NC)"
+
+# Run linter
 lint:
-	@echo "$(YELLOW)🔍 Vérification du code...$(NC)"
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "$(RED)⚠️  golangci-lint non installé. Installation...$(NC)"; \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
-		golangci-lint run; \
-	fi
-	@echo "$(GREEN)✅ Vérification terminée$(NC)"
+	@echo "$(YELLOW)🔍 Running linter...$(NC)"
+	golangci-lint run
+	@echo "$(GREEN)✅ Linting completed$(NC)"
 
-# Formater le code
+# Format code
 format:
-	@echo "$(YELLOW)🎨 Formatage du code...$(NC)"
+	@echo "$(YELLOW)📝 Formatting code...$(NC)"
 	go fmt ./...
-	@echo "$(GREEN)✅ Formatage terminé$(NC)"
+	@echo "$(GREEN)✅ Code formatted$(NC)"
 
-# Initialiser la configuration
-init-config:
-	@echo "$(YELLOW)📝 Initialisation de la configuration...$(NC)"
-	@if [ ! -f config.yaml ]; then \
-		cp configs/config.example.yaml config.yaml; \
-		echo "$(GREEN)✅ Configuration créée: config.yaml$(NC)"; \
-		echo "$(YELLOW)⚠️  Veuillez configurer vos paramètres S3 et votre clé de chiffrement$(NC)"; \
-	else \
-		echo "$(GREEN)✅ Configuration existante détectée$(NC)"; \
+# Setup development environment
+setup:
+	@echo "$(YELLOW)⚙️  Setting up development environment...$(NC)"
+	go mod tidy
+	go mod download
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "Installing golangci-lint..."; \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
 	fi
+	@echo "$(GREEN)✅ Development environment ready$(NC)"
 
-# Installation complète
-setup: clean-all build test init-config
-	@echo "$(GREEN)🎉 Installation BCRDF terminée !$(NC)"
-	@echo ""
-	@echo "$(YELLOW)📋 Prochaines étapes:$(NC)"
-	@echo "1. Configurez config.yaml avec vos paramètres S3"
-	@echo "2. Testez avec: ./$(BINARY_NAME) info"
-	@echo "3. Créez votre première sauvegarde: ./$(BINARY_NAME) backup -n test -s /chemin/vers/donnees"
-
-# Exemples d'utilisation
-example-backup:
-	@echo "$(YELLOW)📋 Exemple de sauvegarde:$(NC)"
-	@echo "./$(BINARY_NAME) backup -n ma-sauvegarde -s /chemin/vers/donnees -c config.yaml -v"
-
-example-restore:
-	@echo "$(YELLOW)📋 Exemple de restauration:$(NC)"
-	@echo "./$(BINARY_NAME) restore --backup-id backup-id --destination ./restored -c config.yaml -v"
-
-example-list:
-	@echo "$(YELLOW)📋 Exemple de liste:$(NC)"
-	@echo "./$(BINARY_NAME) list -c config.yaml -v"
-
-# Compilation multi-architectures
+# Build for all platforms
 build-all:
-	@echo "$(YELLOW)🔨 Compilation multi-architectures...$(NC)"
-	./scripts/build-all.sh
-	@echo "$(GREEN)✅ Compilation multi-architectures terminée$(NC)"
+	@echo "$(YELLOW)🏗️  Building for all platforms...$(NC)"
+	@mkdir -p dist
+	
+	# Linux x64
+	@echo "Building for Linux x64..."
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-x64 cmd/bcrdf/main.go
+	
+	# Linux ARM64
+	@echo "Building for Linux ARM64..."
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-arm64 cmd/bcrdf/main.go
+	
+	# macOS x64
+	@echo "Building for macOS x64..."
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-x64 cmd/bcrdf/main.go
+	
+	# macOS ARM64 (Apple Silicon)
+	@echo "Building for macOS ARM64..."
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-arm64 cmd/bcrdf/main.go
+	
+	# Windows x64
+	@echo "Building for Windows x64..."
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_NAME)-windows-x64.exe cmd/bcrdf/main.go
+	
+	@echo "$(GREEN)✅ All binaries built in dist/$(NC)"
+	@ls -la dist/
 
-# Compilation pour release
-build-release:
-	@echo "$(YELLOW)🔨 Compilation pour release...$(NC)"
-	@if [ -z "$(TAG)" ]; then \
-		echo "$(RED)❌ Spécifiez un tag: make build-release TAG=v1.0.0$(NC)"; \
-		exit 1; \
-	fi
-	./scripts/build-all.sh $(TAG)
-	@echo "$(GREEN)✅ Release $(TAG) compilée$(NC)"
+# Create release packages
+release: build-all
+	@echo "$(YELLOW)📦 Creating release packages...$(NC)"
+	@mkdir -p dist/packages
+	
+	# Linux x64 package
+	@mkdir -p dist/tmp/bcrdf-linux-x64
+	@cp dist/bcrdf-linux-x64 dist/tmp/bcrdf-linux-x64/bcrdf
+	@cp README.md LICENSE dist/tmp/bcrdf-linux-x64/
+	@cp -r configs dist/tmp/bcrdf-linux-x64/
+	@cp -r scripts dist/tmp/bcrdf-linux-x64/
+	@tar -czf dist/packages/bcrdf-linux-x64.tar.gz -C dist/tmp bcrdf-linux-x64
+	
+	# macOS x64 package
+	@mkdir -p dist/tmp/bcrdf-darwin-x64
+	@cp dist/bcrdf-darwin-x64 dist/tmp/bcrdf-darwin-x64/bcrdf
+	@cp README.md LICENSE dist/tmp/bcrdf-darwin-x64/
+	@cp -r configs dist/tmp/bcrdf-darwin-x64/
+	@cp -r scripts dist/tmp/bcrdf-darwin-x64/
+	@tar -czf dist/packages/bcrdf-darwin-x64.tar.gz -C dist/tmp bcrdf-darwin-x64
+	
+	# Windows x64 package
+	@mkdir -p dist/tmp/bcrdf-windows-x64
+	@cp dist/bcrdf-windows-x64.exe dist/tmp/bcrdf-windows-x64/bcrdf.exe
+	@cp README.md LICENSE dist/tmp/bcrdf-windows-x64/
+	@cp -r configs dist/tmp/bcrdf-windows-x64/
+	@cp -r scripts dist/tmp/bcrdf-windows-x64/
+	@cd dist/tmp && zip -r ../packages/bcrdf-windows-x64.zip bcrdf-windows-x64
+	
+	@rm -rf dist/tmp
+	@echo "$(GREEN)✅ Release packages created in dist/packages/$(NC)"
+	@ls -la dist/packages/
 
-# Afficher les informations du projet
-info:
-	@echo "$(GREEN)BCRDF - Système de sauvegarde index-based$(NC)"
-	@echo "Version: $(VERSION)"
-	@echo "Go version: $(shell go version)"
-	@echo "Architecture: $(shell go env GOOS)/$(shell go env GOARCH)" 
+# Show project statistics
+stats:
+	@echo "$(YELLOW)📊 Project Statistics$(NC)"
+	@echo ""
+	@echo "Lines of code:"
+	@find . -name "*.go" -not -path "./vendor/*" | xargs wc -l | tail -1
+	@echo ""
+	@echo "Go files:"
+	@find . -name "*.go" -not -path "./vendor/*" | wc -l
+	@echo ""
+	@echo "Packages:"
+	@go list ./... | wc -l
+
+# Run benchmarks
+bench:
+	@echo "$(YELLOW)🏃 Running benchmarks...$(NC)"
+	go test -bench=. -benchmem ./...
+	@echo "$(GREEN)✅ Benchmarks completed$(NC)"

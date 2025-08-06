@@ -47,6 +47,9 @@ config.yaml
 test-data/
 restored-*/
 temp/
+test-*/
+*test*.yaml
+*.test
 
 # Build artifacts
 dist/

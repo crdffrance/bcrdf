@@ -114,10 +114,14 @@ jobs:
           pwd
           ls -la
           ls -la cmd/bcrdf/
+          go version
+          go env GOPATH
+          go env GOROOT
+          echo "Building with go build..."
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build \
             -ldflags "-X main.Version=${{ steps.version.outputs.version }}-${{ matrix.target }}" \
             -o dist/bcrdf-${{ matrix.target }}${{ matrix.os == 'windows' && '.exe' || '' }} \
-            cmd/bcrdf/main.go
+            ./cmd/bcrdf/main.go
 
       - name: Create archive
         run: |

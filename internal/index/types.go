@@ -3,6 +3,8 @@ package index
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"time"
 )
@@ -46,11 +48,25 @@ type BackupMetadata struct {
 	Status         string    `json:"status"`
 }
 
-// NewFileEntry crée une nouvelle entrée de fichier
+// NewFileEntry creates a new file entry
 func NewFileEntry(path string, info os.FileInfo) (*FileEntry, error) {
-	checksum, err := calculateChecksum(path)
-	if err != nil {
-		return nil, err
+	return NewFileEntryWithMode(path, info, "fast")
+}
+
+// NewFileEntryWithMode creates a new file entry with specified checksum mode
+func NewFileEntryWithMode(path string, info os.FileInfo, checksumMode string) (*FileEntry, error) {
+	var checksum string
+	var err error
+
+	if info.IsDir() {
+		// For directories, use a special checksum based on path and permissions
+		checksum = calculateDirectoryChecksum(path, info)
+	} else {
+		// For files, calculate checksum based on mode
+		checksum, err = calculateFileChecksumWithMode(path, info, checksumMode)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	entry := &FileEntry{
@@ -71,8 +87,27 @@ func NewFileEntry(path string, info os.FileInfo) (*FileEntry, error) {
 	return entry, nil
 }
 
-// calculateChecksum calcule le checksum SHA256 d'un fichier
-func calculateChecksum(path string) (string, error) {
+// calculateFileChecksum calculates SHA256 checksum of a file (legacy - full mode)
+func calculateFileChecksum(path string) (string, error) {
+	return calculateFileChecksumWithMode(path, nil, "full")
+}
+
+// calculateFileChecksumWithMode calculates checksum based on mode
+func calculateFileChecksumWithMode(path string, info os.FileInfo, mode string) (string, error) {
+	switch mode {
+	case "full":
+		return calculateFullChecksum(path)
+	case "fast":
+		return calculateFastChecksum(path, info)
+	case "metadata":
+		return calculateMetadataChecksum(path, info)
+	default:
+		return calculateFastChecksum(path, info)
+	}
+}
+
+// calculateFullChecksum reads entire file and calculates SHA256 (SLOW but most secure)
+func calculateFullChecksum(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -80,6 +115,84 @@ func calculateChecksum(path string) (string, error) {
 
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+// calculateFastChecksum uses file metadata + first/last bytes (FAST and reliable)
+func calculateFastChecksum(path string, info os.FileInfo) (string, error) {
+	if info == nil {
+		var err error
+		info, err = os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// For small files (< 64KB), read the entire file
+	if info.Size() < 65536 {
+		return calculateFullChecksum(path)
+	}
+
+	// For large files, use metadata + sample bytes
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// Read first 8KB
+	firstBytes := make([]byte, 8192)
+	n1, err := file.Read(firstBytes)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+
+	// Read last 8KB
+	lastBytes := make([]byte, 8192)
+	var n2 int
+	if info.Size() > 8192 {
+		_, err = file.Seek(-8192, io.SeekEnd)
+		if err != nil {
+			return "", err
+		}
+		n2, err = file.Read(lastBytes)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+	}
+
+	// Create hash from: size + modtime + first bytes + last bytes
+	hasher := sha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%d-%d", info.Size(), info.ModTime().Unix())))
+	hasher.Write(firstBytes[:n1])
+	if n2 > 0 {
+		hasher.Write(lastBytes[:n2])
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// calculateMetadataChecksum uses only file metadata (VERY FAST but less secure)
+func calculateMetadataChecksum(path string, info os.FileInfo) (string, error) {
+	if info == nil {
+		var err error
+		info, err = os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Hash based on: path + size + modtime + permissions
+	data := fmt.Sprintf("%s-%d-%d-%s", path, info.Size(), info.ModTime().Unix(), info.Mode().String())
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// calculateDirectoryChecksum calculates a checksum for a directory based on its metadata
+func calculateDirectoryChecksum(path string, info os.FileInfo) string {
+	// For directories, create a checksum based on path, permissions, and modification time
+	data := path + info.Mode().String() + info.ModTime().String()
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])
 }
 
 // getUserName récupère le nom d'utilisateur par UID

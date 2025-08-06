@@ -8,18 +8,18 @@ import (
 	"bcrdf/internal/compression"
 	"bcrdf/internal/crypto"
 	"bcrdf/internal/index"
-	"bcrdf/pkg/s3"
+	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
 
 // Manager gère les opérations de restauration
 type Manager struct {
-	configFile string
-	config     *utils.Config
-	indexMgr   *index.Manager
-	encryptor  *crypto.EncryptorV2
-	compressor *compression.Compressor
-	s3Client   *s3.Client
+	configFile    string
+	config        *utils.Config
+	indexMgr      *index.Manager
+	encryptor     *crypto.EncryptorV2
+	compressor    *compression.Compressor
+	storageClient storage.Client
 }
 
 // NewManager crée un nouveau gestionnaire de restauration
@@ -30,8 +30,12 @@ func NewManager(configFile string) *Manager {
 }
 
 // RestoreBackup restaure une sauvegarde complète
-func (m *Manager) RestoreBackup(backupID, destinationPath string) error {
-	utils.Info("🔄 Début de la restauration: %s", backupID)
+func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) error {
+	if verbose {
+		utils.Info("🔄 Starting restore: %s", backupID)
+	} else {
+		utils.ProgressStep(fmt.Sprintf("🔄 Starting restore: %s", backupID))
+	}
 
 	// Charger la configuration
 	config, err := utils.LoadConfig(m.configFile)
@@ -46,24 +50,36 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string) error {
 	}
 
 	// Charger l'index de la sauvegarde
+	if !verbose {
+		utils.ProgressStep("Chargement de l'index...")
+	}
 	backupIndex, err := m.indexMgr.LoadIndex(backupID)
 	if err != nil {
 		return fmt.Errorf("erreur lors du chargement de l'index: %w", err)
 	}
 
 	// Vérifier que le répertoire de destination existe ou le créer
+	if !verbose {
+		utils.ProgressStep("Preparing destination directory...")
+	}
 	if err := utils.EnsureDirectory(destinationPath); err != nil {
 		return fmt.Errorf("erreur lors de la création du répertoire de destination: %w", err)
 	}
 
 	// Restaurer tous les fichiers
-	if err := m.restoreFiles(backupIndex, destinationPath); err != nil {
+	if err := m.restoreFiles(backupIndex, destinationPath, verbose); err != nil {
 		return fmt.Errorf("erreur lors de la restauration des fichiers: %w", err)
 	}
 
-	utils.Info("✅ Restauration terminée: %s", backupID)
-	utils.Info("📊 Statistiques: %d fichiers restaurés, taille totale: %d bytes",
-		backupIndex.TotalFiles, backupIndex.TotalSize)
+	if verbose {
+		utils.Info("✅ Restore completed: %s", backupID)
+		utils.Info("📊 Statistics: %d files restored, total size: %d bytes",
+			backupIndex.TotalFiles, backupIndex.TotalSize)
+	} else {
+		utils.ProgressSuccess(fmt.Sprintf("✅ Restore completed: %s", backupID))
+		utils.ProgressInfo(fmt.Sprintf("📊 %d files restored, total size: %d bytes",
+			backupIndex.TotalFiles, backupIndex.TotalSize))
+	}
 
 	return nil
 }
@@ -108,7 +124,7 @@ func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error 
 		return fmt.Errorf("erreur lors de la restauration du fichier: %w", err)
 	}
 
-	utils.Info("✅ Fichier restauré: %s", filePath)
+	utils.Info("✅ File restored: %s", filePath)
 	return nil
 }
 
@@ -136,30 +152,37 @@ func (m *Manager) initializeComponents() error {
 	}
 	m.compressor = compressor
 
-	// Initialiser le client S3
-	s3Client, err := s3.NewClient(
-		m.config.Storage.AccessKey,
-		m.config.Storage.SecretKey,
-		m.config.Storage.Region,
-		m.config.Storage.Endpoint,
-		m.config.Storage.Bucket,
-	)
+	// Initialiser le client de stockage
+	storageClient, err := storage.NewStorageClient(m.config)
 	if err != nil {
-		return fmt.Errorf("erreur lors de l'initialisation du client S3: %w", err)
+		return fmt.Errorf("erreur lors de l'initialisation du client de stockage: %w", err)
 	}
-	m.s3Client = s3Client
+	m.storageClient = storageClient
 
 	return nil
 }
 
 // restoreFiles restaure tous les fichiers d'une sauvegarde
-func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath string) error {
-	utils.Info("Restauration de %d fichiers vers: %s", backupIndex.TotalFiles, destinationPath)
+func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath string, verbose bool) error {
+	if verbose {
+		utils.Info("Restoring %d files to: %s", backupIndex.TotalFiles, destinationPath)
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Restoring %d files to: %s", backupIndex.TotalFiles, destinationPath))
+	}
 
 	// Créer un pool de workers pour le traitement parallèle
 	semaphore := make(chan struct{}, m.config.Backup.MaxWorkers)
 	var wg sync.WaitGroup
 	errors := make(chan error, len(backupIndex.Files))
+
+	// Barre de progression pour le mode non-verbeux
+	var progressBar *utils.ProgressBar
+	if !verbose {
+		progressBar = utils.NewProgressBar(int64(len(backupIndex.Files)))
+	}
+
+	completed := int64(0)
+	var completedMutex sync.Mutex
 
 	for _, file := range backupIndex.Files {
 		wg.Add(1)
@@ -171,15 +194,32 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 			if err := m.restoreSingleFile(f, backupIndex.BackupID, destinationPath); err != nil {
 				errors <- fmt.Errorf("erreur lors de la restauration de %s: %w", f.Path, err)
 			}
+
+			// Mettre à jour la progression
+			if !verbose {
+				completedMutex.Lock()
+				completed++
+				progressBar.Update(completed)
+				completedMutex.Unlock()
+			}
 		}(file)
 	}
 
 	wg.Wait()
 	close(errors)
 
+	// Terminer la barre de progression
+	if !verbose && progressBar != nil {
+		progressBar.Finish()
+	}
+
 	// Vérifier s'il y a eu des erreurs
 	for err := range errors {
-		utils.Error("%v", err)
+		if verbose {
+			utils.Error("%v", err)
+		} else {
+			utils.ProgressError(err.Error())
+		}
 	}
 
 	return nil
@@ -236,7 +276,7 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 		utils.Warn("Impossible de restaurer les permissions pour %s: %v", file.Path, err)
 	}
 
-	utils.Debug("Fichier restauré: %s -> %s", file.Path, destPath)
+	utils.Debug("File restored: %s -> %s", file.Path, destPath)
 	return nil
 }
 
@@ -249,5 +289,5 @@ func (m *Manager) restorePermissions(filePath string, file index.FileEntry) erro
 
 // loadFromStorage charge des données depuis le stockage
 func (m *Manager) loadFromStorage(key string) ([]byte, error) {
-	return m.s3Client.Download(key)
+	return m.storageClient.Download(key)
 }

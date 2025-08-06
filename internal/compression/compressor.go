@@ -46,7 +46,7 @@ func (c *Compressor) Compress(data []byte) ([]byte, error) {
 	}
 
 	compressed := buf.Bytes()
-	utils.Debug("Données compressées: %d bytes -> %d bytes (ratio: %.2f%%)",
+	utils.Debug("Data compressed: %d bytes -> %d bytes (ratio: %.2f%%)",
 		len(data), len(compressed), float64(len(compressed))/float64(len(data))*100)
 
 	return compressed, nil
@@ -67,7 +67,7 @@ func (c *Compressor) Decompress(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("erreur lors de la décompression: %w", err)
 	}
 
-	utils.Debug("Données décompressées: %d bytes -> %d bytes",
+	utils.Debug("Data decompressed: %d bytes -> %d bytes",
 		len(data), len(decompressed))
 
 	return decompressed, nil
@@ -94,13 +94,13 @@ func (c *Compressor) CompressFile(inputPath, outputPath string) error {
 		return fmt.Errorf("erreur lors de l'écriture du fichier compressé: %w", err)
 	}
 
-	utils.Info("Fichier compressé sauvegardé: %s", outputPath)
+	utils.Info("Compressed file saved: %s", outputPath)
 	return nil
 }
 
 // DecompressFile décompresse un fichier complet
 func (c *Compressor) DecompressFile(inputPath, outputPath string) error {
-	utils.Info("Décompression du fichier: %s", inputPath)
+	utils.Info("Decompressing file: %s", inputPath)
 
 	// Lire le fichier compressé
 	compressedData, err := utils.ReadFile(inputPath)
@@ -119,7 +119,7 @@ func (c *Compressor) DecompressFile(inputPath, outputPath string) error {
 		return fmt.Errorf("erreur lors de l'écriture du fichier décompressé: %w", err)
 	}
 
-	utils.Info("Fichier décompressé sauvegardé: %s", outputPath)
+	utils.Info("Decompressed file saved: %s", outputPath)
 	return nil
 }
 

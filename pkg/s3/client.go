@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -13,6 +14,13 @@ import (
 
 	"bcrdf/pkg/utils"
 )
+
+// ObjectInfo représente les informations d'un objet S3
+type ObjectInfo struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+}
 
 // Client représente un client S3
 type Client struct {
@@ -85,7 +93,7 @@ func (c *Client) Upload(key string, data []byte) error {
 		return fmt.Errorf("erreur lors de l'upload vers S3: %w", err)
 	}
 
-	utils.Debug("Upload réussi: %s/%s", c.bucket, key)
+	utils.Debug("Upload successful: %s/%s", c.bucket, key)
 	return nil
 }
 
@@ -108,14 +116,14 @@ func (c *Client) Download(key string) ([]byte, error) {
 		return nil, fmt.Errorf("erreur lors du download depuis S3: %w", err)
 	}
 
-	utils.Debug("Download réussi: %s/%s (%d bytes)", c.bucket, key, len(buffer.Bytes()))
+	utils.Debug("Download successful: %s/%s (%d bytes)", c.bucket, key, len(buffer.Bytes()))
 	return buffer.Bytes(), nil
 }
 
 // ListObjects liste les objets dans un préfixe
 func (c *Client) ListObjects(prefix string) ([]string, error) {
-	utils.Debug("Liste des objets S3 avec préfixe: %s", prefix)
-	utils.Debug("Bucket: %s, Région: %s", c.bucket, c.region)
+	utils.Debug("S3 object list with prefix: %s", prefix)
+	utils.Debug("Bucket: %s, Region: %s", c.bucket, c.region)
 
 	var keys []string
 
@@ -129,9 +137,9 @@ func (c *Client) ListObjects(prefix string) ([]string, error) {
 	result, err := c.s3Client.ListObjectsV2(params)
 	if err != nil {
 		utils.Debug("Erreur ListObjectsV2: %v", err)
-		// Si le préfixe n'existe pas, retourner une liste vide (pas d'erreur)
+		// Si le préfixe n'existe pas, retourner une empty list (pas d'erreur)
 		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
-			utils.Debug("Préfixe %s n'existe pas encore, liste vide", prefix)
+			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
 			return keys, nil
 		}
 		return nil, fmt.Errorf("erreur lors de la liste des objets S3: %w", err)
@@ -142,11 +150,56 @@ func (c *Client) ListObjects(prefix string) ([]string, error) {
 		keys = append(keys, *object.Key)
 	}
 
-	utils.Debug("Liste des objets: %d objets trouvés", len(keys))
+	utils.Debug("Object list: %d objects found", len(keys))
 	for i, key := range keys {
 		utils.Debug("  [%d] %s", i+1, key)
 	}
 	return keys, nil
+}
+
+// ListObjectsDetailed liste les objets avec leurs détails dans un préfixe
+func (c *Client) ListObjectsDetailed(prefix string) ([]ObjectInfo, error) {
+	utils.Debug("S3 object list with prefix: %s", prefix)
+	utils.Debug("Bucket: %s, Region: %s", c.bucket, c.region)
+
+	var objects []ObjectInfo
+
+	// Paramètres de liste
+	params := &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.bucket),
+		Prefix: aws.String(prefix),
+	}
+
+	// Effectuer la liste
+	result, err := c.s3Client.ListObjectsV2(params)
+	if err != nil {
+		utils.Debug("Erreur ListObjectsV2: %v", err)
+		// Si le préfixe n'existe pas, retourner une empty list (pas d'erreur)
+		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
+			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
+			return objects, nil
+		}
+		return nil, fmt.Errorf("erreur lors de la liste des objets S3: %w", err)
+	}
+
+	// Extraire les informations des objets
+	for _, object := range result.Contents {
+		objInfo := ObjectInfo{
+			Key:  *object.Key,
+			Size: *object.Size,
+		}
+		if object.LastModified != nil {
+			objInfo.LastModified = *object.LastModified
+		}
+		objects = append(objects, objInfo)
+	}
+
+	utils.Debug("Object list: %d objects found", len(objects))
+	for i, obj := range objects {
+		utils.Debug("  [%d] %s", i+1, obj.Key)
+	}
+
+	return objects, nil
 }
 
 // DeleteObject supprime un objet de S3
@@ -165,13 +218,13 @@ func (c *Client) DeleteObject(key string) error {
 		return fmt.Errorf("erreur lors de la suppression d'objet S3: %w", err)
 	}
 
-	utils.Debug("Suppression réussie: %s/%s", c.bucket, key)
+	utils.Debug("Deletion successful: %s/%s", c.bucket, key)
 	return nil
 }
 
 // Exists vérifie si un objet existe
 func (c *Client) Exists(key string) (bool, error) {
-	utils.Debug("Vérification d'existence: %s/%s", c.bucket, key)
+	utils.Debug("Checking existence: %s/%s", c.bucket, key)
 
 	// Paramètres de vérification
 	params := &s3.HeadObjectInput{

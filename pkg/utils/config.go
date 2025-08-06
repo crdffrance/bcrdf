@@ -10,12 +10,17 @@ import (
 // Config représente la configuration de l'application
 type Config struct {
 	Storage struct {
-		Type      string `mapstructure:"type"`
+		Type string `mapstructure:"type"`
+		// S3 fields
 		Bucket    string `mapstructure:"bucket"`
 		Region    string `mapstructure:"region"`
-		Endpoint  string `mapstructure:"endpoint"`
 		AccessKey string `mapstructure:"access_key"`
 		SecretKey string `mapstructure:"secret_key"`
+		// Common fields
+		Endpoint string `mapstructure:"endpoint"`
+		// WebDAV fields
+		Username string `mapstructure:"username"`
+		Password string `mapstructure:"password"`
 	} `mapstructure:"storage"`
 
 	Backup struct {
@@ -24,6 +29,7 @@ type Config struct {
 		EncryptionAlgo   string `mapstructure:"encryption_algo"`
 		CompressionLevel int    `mapstructure:"compression_level"`
 		MaxWorkers       int    `mapstructure:"max_workers"`
+		ChecksumMode     string `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
 	} `mapstructure:"backup"`
 
 	Retention struct {
@@ -115,8 +121,26 @@ retention:
 	return &config, nil
 }
 
-// validateConfig valide la configuration
+// validateConfig valide la configuration de base (validation légère)
 func validateConfig(config *Config) error {
+	// Validation du type de stockage
+	if config.Storage.Type != "s3" && config.Storage.Type != "webdav" {
+		return fmt.Errorf("type de stockage non supporté: %s", config.Storage.Type)
+	}
+
+	// Validation spécifique au type de stockage
+	switch config.Storage.Type {
+	case "s3":
+		return validateS3Config(config)
+	case "webdav":
+		return validateWebDAVConfig(config)
+	}
+
+	return nil
+}
+
+// validateS3Config valide la configuration S3
+func validateS3Config(config *Config) error {
 	if config.Storage.Bucket == "" {
 		return fmt.Errorf("le nom du bucket S3 est requis")
 	}
@@ -139,6 +163,28 @@ func validateConfig(config *Config) error {
 		}
 	}
 
+	return validateCommonConfig(config)
+}
+
+// validateWebDAVConfig valide la configuration WebDAV
+func validateWebDAVConfig(config *Config) error {
+	if config.Storage.Endpoint == "" {
+		return fmt.Errorf("l'URL du serveur WebDAV est requise")
+	}
+
+	if config.Storage.Username == "" {
+		return fmt.Errorf("le nom d'utilisateur WebDAV est requis")
+	}
+
+	if config.Storage.Password == "" {
+		return fmt.Errorf("le mot de passe WebDAV est requis")
+	}
+
+	return validateCommonConfig(config)
+}
+
+// validateCommonConfig valide les paramètres communs
+func validateCommonConfig(config *Config) error {
 	if config.Backup.EncryptionKey == "" || config.Backup.EncryptionKey == "your-encryption-key-here" {
 		return fmt.Errorf("la clé de chiffrement est requise")
 	}
@@ -152,4 +198,35 @@ func validateConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// WriteConfig écrit une configuration dans un fichier YAML
+func WriteConfig(config *Config, configFile string) error {
+	viper.Reset()
+
+	// Configurer viper pour écrire
+	viper.SetConfigFile(configFile)
+	viper.SetConfigType("yaml")
+
+	// Définir les valeurs de configuration
+	viper.Set("storage.type", config.Storage.Type)
+	viper.Set("storage.bucket", config.Storage.Bucket)
+	viper.Set("storage.region", config.Storage.Region)
+	viper.Set("storage.endpoint", config.Storage.Endpoint)
+	viper.Set("storage.access_key", config.Storage.AccessKey)
+	viper.Set("storage.secret_key", config.Storage.SecretKey)
+	viper.Set("storage.username", config.Storage.Username)
+	viper.Set("storage.password", config.Storage.Password)
+
+	viper.Set("backup.source_path", config.Backup.SourcePath)
+	viper.Set("backup.encryption_key", config.Backup.EncryptionKey)
+	viper.Set("backup.encryption_algo", config.Backup.EncryptionAlgo)
+	viper.Set("backup.compression_level", config.Backup.CompressionLevel)
+	viper.Set("backup.max_workers", config.Backup.MaxWorkers)
+
+	viper.Set("retention.days", config.Retention.Days)
+	viper.Set("retention.max_backups", config.Retention.MaxBackups)
+
+	// Écrire le fichier
+	return viper.WriteConfig()
 }

@@ -24,12 +24,15 @@ type Config struct {
 	} `mapstructure:"storage"`
 
 	Backup struct {
-		SourcePath       string `mapstructure:"source_path"`
-		EncryptionKey    string `mapstructure:"encryption_key"`
-		EncryptionAlgo   string `mapstructure:"encryption_algo"`
-		CompressionLevel int    `mapstructure:"compression_level"`
-		MaxWorkers       int    `mapstructure:"max_workers"`
-		ChecksumMode     string `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
+		EncryptionKey    string   `mapstructure:"encryption_key"`
+		EncryptionAlgo   string   `mapstructure:"encryption_algo"`
+		CompressionLevel int      `mapstructure:"compression_level"`
+		MaxWorkers       int      `mapstructure:"max_workers"`
+		ChecksumMode     string   `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
+		SkipPatterns     []string `mapstructure:"skip_patterns"`
+		BufferSize       string   `mapstructure:"buffer_size"`
+		BatchSize        int      `mapstructure:"batch_size"`       // Number of files to batch together
+		BatchSizeLimit   string   `mapstructure:"batch_size_limit"` // Max size for batch upload (e.g., "10MB")
 	} `mapstructure:"backup"`
 
 	Retention struct {
@@ -88,7 +91,6 @@ storage:
   secret_key: ""
 
 backup:
-  source_path: "/path/to/backup"
   encryption_key: "your-encryption-key-here"
   encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
   compression_level: 3
@@ -218,11 +220,15 @@ func WriteConfig(config *Config, configFile string) error {
 	viper.Set("storage.username", config.Storage.Username)
 	viper.Set("storage.password", config.Storage.Password)
 
-	viper.Set("backup.source_path", config.Backup.SourcePath)
 	viper.Set("backup.encryption_key", config.Backup.EncryptionKey)
 	viper.Set("backup.encryption_algo", config.Backup.EncryptionAlgo)
 	viper.Set("backup.compression_level", config.Backup.CompressionLevel)
 	viper.Set("backup.max_workers", config.Backup.MaxWorkers)
+	viper.Set("backup.checksum_mode", config.Backup.ChecksumMode)
+	viper.Set("backup.buffer_size", config.Backup.BufferSize)
+	viper.Set("backup.batch_size", config.Backup.BatchSize)
+	viper.Set("backup.batch_size_limit", config.Backup.BatchSizeLimit)
+	viper.Set("backup.skip_patterns", config.Backup.SkipPatterns)
 
 	viper.Set("retention.days", config.Retention.Days)
 	viper.Set("retention.max_backups", config.Retention.MaxBackups)

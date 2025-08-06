@@ -2,8 +2,11 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // ReadFile lit un fichier et retourne son contenu
@@ -77,4 +80,98 @@ func RemoveDirectory(path string) error {
 		return fmt.Errorf("error removing directory %s: %w", path, err)
 	}
 	return nil
+}
+
+// ReadFileWithBuffer reads a file with configurable buffer size for better performance
+func ReadFileWithBuffer(path string, bufferSize int) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("error opening file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	// Get file size
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("error getting file stats %s: %w", path, err)
+	}
+
+	// Use optimized buffer size
+	if bufferSize <= 0 {
+		bufferSize = 64 * 1024 // Default 64KB
+	}
+
+	// For small files, use the file size as buffer
+	fileSize := int(stat.Size())
+	if fileSize < bufferSize {
+		bufferSize = fileSize
+	}
+
+	// Read with buffer
+	data := make([]byte, fileSize)
+	buffer := make([]byte, bufferSize)
+	totalRead := 0
+
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			copy(data[totalRead:], buffer[:n])
+			totalRead += n
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading file %s: %w", path, err)
+		}
+	}
+
+	return data[:totalRead], nil
+}
+
+// ParseBufferSize parses buffer size string (e.g., "64MB", "1GB", "512KB")
+func ParseBufferSize(sizeStr string) (int, error) {
+	if sizeStr == "" {
+		return 64 * 1024 * 1024, nil // Default 64MB
+	}
+
+	sizeStr = strings.ToUpper(strings.TrimSpace(sizeStr))
+
+	// Parse number and unit
+	var multiplier int64 = 1
+	var numStr string
+
+	if strings.HasSuffix(sizeStr, "GB") {
+		multiplier = 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(sizeStr, "GB")
+	} else if strings.HasSuffix(sizeStr, "MB") {
+		multiplier = 1024 * 1024
+		numStr = strings.TrimSuffix(sizeStr, "MB")
+	} else if strings.HasSuffix(sizeStr, "KB") {
+		multiplier = 1024
+		numStr = strings.TrimSuffix(sizeStr, "KB")
+	} else if strings.HasSuffix(sizeStr, "B") {
+		multiplier = 1
+		numStr = strings.TrimSuffix(sizeStr, "B")
+	} else {
+		// Assume bytes if no unit
+		numStr = sizeStr
+	}
+
+	num, err := strconv.ParseInt(numStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid buffer size format: %s", sizeStr)
+	}
+
+	result := int(num * multiplier)
+
+	// Sanity checks
+	if result < 1024 {
+		return 1024, nil // Minimum 1KB
+	}
+	if result > 1024*1024*1024 {
+		return 1024 * 1024 * 1024, nil // Maximum 1GB
+	}
+
+	return result, nil
 }

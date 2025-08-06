@@ -113,7 +113,7 @@ func (c *Client) Download(key string) ([]byte, error) {
 	// Effectuer le download
 	_, err := c.downloader.Download(buffer, params)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lors du download depuis S3: %w", err)
+		return nil, fmt.Errorf("error downloading from S3: %w", err)
 	}
 
 	utils.Debug("Download successful: %s/%s (%d bytes)", c.bucket, key, len(buffer.Bytes()))
@@ -136,13 +136,13 @@ func (c *Client) ListObjects(prefix string) ([]string, error) {
 	// Effectuer la liste
 	result, err := c.s3Client.ListObjectsV2(params)
 	if err != nil {
-		utils.Debug("Erreur ListObjectsV2: %v", err)
+		utils.Debug("ListObjectsV2 error: %v", err)
 		// Si le préfixe n'existe pas, retourner une empty list (pas d'erreur)
 		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
 			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
 			return keys, nil
 		}
-		return nil, fmt.Errorf("error during la liste des objets S3: %w", err)
+		return nil, fmt.Errorf("error listing S3 objects: %w", err)
 	}
 
 	// Extraire les clés
@@ -173,13 +173,13 @@ func (c *Client) ListObjectsDetailed(prefix string) ([]ObjectInfo, error) {
 	// Effectuer la liste
 	result, err := c.s3Client.ListObjectsV2(params)
 	if err != nil {
-		utils.Debug("Erreur ListObjectsV2: %v", err)
+		utils.Debug("ListObjectsV2 error: %v", err)
 		// Si le préfixe n'existe pas, retourner une empty list (pas d'erreur)
 		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
 			utils.Debug("Prefix %s does not exist yet, empty list", prefix)
 			return objects, nil
 		}
-		return nil, fmt.Errorf("error during la liste des objets S3: %w", err)
+		return nil, fmt.Errorf("error listing S3 objects: %w", err)
 	}
 
 	// Extraire les informations des objets
@@ -204,7 +204,7 @@ func (c *Client) ListObjectsDetailed(prefix string) ([]ObjectInfo, error) {
 
 // DeleteObject supprime un objet de S3
 func (c *Client) DeleteObject(key string) error {
-	utils.Debug("Suppression d'objet S3: %s/%s", c.bucket, key)
+	utils.Debug("Deleting S3 object: %s/%s", c.bucket, key)
 
 	// Paramètres de suppression
 	params := &s3.DeleteObjectInput{
@@ -215,7 +215,7 @@ func (c *Client) DeleteObject(key string) error {
 	// Effectuer la suppression
 	_, err := c.s3Client.DeleteObject(params)
 	if err != nil {
-		return fmt.Errorf("error during la suppression d'objet S3: %w", err)
+		return fmt.Errorf("error deleting S3 object: %w", err)
 	}
 
 	utils.Debug("Deletion successful: %s/%s", c.bucket, key)

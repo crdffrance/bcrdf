@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"bcrdf/internal/crypto"
 	"bcrdf/pkg/storage"
@@ -163,13 +164,6 @@ func (v *ConfigValidator) validateBackup(verbose bool) error {
 
 	backup := v.config.Backup
 
-	// Vérifier le chemin source (si spécifié)
-	if backup.SourcePath != "" && backup.SourcePath != "/path/to/backup" && backup.SourcePath != "/chemin/vers/sauvegarde" {
-		if _, err := os.Stat(backup.SourcePath); os.IsNotExist(err) {
-			return fmt.Errorf("chemin source inexistant: %s", backup.SourcePath)
-		}
-	}
-
 	// Vérifier la clé de chiffrement
 	if backup.EncryptionKey == "" {
 		return fmt.Errorf("encryption key required")
@@ -297,12 +291,26 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 		return fmt.Errorf("unsupported storage type: %s", storageType)
 	}
 
-	config.Backup.SourcePath = "/path/to/backup"
 	config.Backup.EncryptionKey = hex.EncodeToString([]byte(encryptionKey))
 	config.Backup.EncryptionAlgo = "aes-256-gcm"
 	config.Backup.CompressionLevel = 3
-	config.Backup.MaxWorkers = 10
+	config.Backup.MaxWorkers = 32 // Optimized for performance
 	config.Backup.ChecksumMode = "fast"
+	config.Backup.BufferSize = "64MB"
+	config.Backup.BatchSize = 50
+	config.Backup.BatchSizeLimit = "10MB"
+	config.Backup.SkipPatterns = []string{
+		"*.tmp",
+		"*.cache",
+		"*.log",
+		".DS_Store",
+		"Thumbs.db",
+		"*.swp",
+		"*.swo",
+		"node_modules/",
+		".git/",
+		"__pycache__/",
+	}
 
 	config.Retention.Days = 30
 	config.Retention.MaxBackups = 10
@@ -316,6 +324,222 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 	if err := utils.WriteConfig(config, outputPath); err != nil {
 		return fmt.Errorf("error saving: %w", err)
 	}
+
+	return nil
+}
+
+// GenerateInteractiveConfig génère une configuration via un mode interactif
+func GenerateInteractiveConfig(outputPath string) error {
+	utils.PrintHeader("BCRDF Interactive Configuration")
+
+	fmt.Println("Welcome to BCRDF! This wizard will help you create an optimized configuration.")
+	fmt.Println("Press Enter to use default values shown in brackets.")
+
+	config := &utils.Config{}
+
+	// Configuration du stockage
+	if err := configureStorageInteractive(config); err != nil {
+		return err
+	}
+
+	// Configuration de la sauvegarde
+	if err := configureBackupInteractive(config); err != nil {
+		return err
+	}
+
+	// Configuration de la rétention
+	if err := configureRetentionInteractive(config); err != nil {
+		return err
+	}
+
+	// Créer le répertoire parent si nécessaire
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	// Sauvegarder la configuration
+	if err := utils.WriteConfig(config, outputPath); err != nil {
+		return fmt.Errorf("error saving configuration: %w", err)
+	}
+
+	utils.PrintSuccess(fmt.Sprintf("Configuration saved to: %s", outputPath))
+	utils.PrintInfo("You can now test your configuration with: bcrdf init --test --config " + outputPath)
+
+	return nil
+}
+
+// configureStorageInteractive configure le stockage de manière interactive
+func configureStorageInteractive(config *utils.Config) error {
+	utils.PrintSection("Storage Configuration")
+
+	// Choix du type de stockage
+	storageTypes := []string{
+		"S3 (Amazon S3, Scaleway, DigitalOcean Spaces, MinIO, etc.)",
+		"WebDAV (Nextcloud, ownCloud, Hetzner Storage Box, etc.)",
+	}
+
+	choice := utils.PromptChoice("Select your storage type:", storageTypes, 0)
+
+	switch choice {
+	case 0:
+		config.Storage.Type = "s3"
+		return configureS3Interactive(config)
+	case 1:
+		config.Storage.Type = "webdav"
+		return configureWebDAVInteractive(config)
+	}
+
+	return nil
+}
+
+// configureS3Interactive configure S3 de manière interactive
+func configureS3Interactive(config *utils.Config) error {
+	utils.PrintInfo("Configuring S3-compatible storage...")
+
+	// Presets pour les services populaires
+	presets := []string{
+		"Amazon S3 (AWS)",
+		"Scaleway Object Storage",
+		"DigitalOcean Spaces",
+		"MinIO (self-hosted)",
+		"Custom S3-compatible service",
+	}
+
+	preset := utils.PromptChoice("Choose a preset or custom configuration:", presets, 0)
+
+	switch preset {
+	case 0: // AWS S3
+		config.Storage.Endpoint = ""
+		region := utils.PromptString("AWS Region", "eu-west-3")
+		config.Storage.Region = region
+		config.Storage.Endpoint = fmt.Sprintf("https://s3.%s.amazonaws.com", region)
+	case 1: // Scaleway
+		config.Storage.Region = utils.PromptString("Scaleway Region (fr-par, nl-ams, pl-waw)", "fr-par")
+		config.Storage.Endpoint = fmt.Sprintf("https://s3.%s.scw.cloud", config.Storage.Region)
+	case 2: // DigitalOcean
+		config.Storage.Region = utils.PromptString("DigitalOcean Region (nyc3, fra1, sgp1)", "fra1")
+		config.Storage.Endpoint = fmt.Sprintf("https://%s.digitaloceanspaces.com", config.Storage.Region)
+	case 3: // MinIO
+		config.Storage.Endpoint = utils.PromptString("MinIO Server URL", "https://minio.example.com")
+		config.Storage.Region = utils.PromptString("Region", "us-east-1")
+	case 4: // Custom
+		config.Storage.Endpoint = utils.PromptString("S3 Endpoint URL", "https://s3.example.com")
+		config.Storage.Region = utils.PromptString("Region", "us-east-1")
+	}
+
+	config.Storage.Bucket = utils.PromptString("Bucket name", "my-backup-bucket")
+	config.Storage.AccessKey = utils.PromptString("Access Key", "")
+	config.Storage.SecretKey = utils.PromptPassword("Secret Key")
+
+	return nil
+}
+
+// configureWebDAVInteractive configure WebDAV de manière interactive
+func configureWebDAVInteractive(config *utils.Config) error {
+	utils.PrintInfo("Configuring WebDAV storage...")
+
+	// Presets pour les services populaires
+	presets := []string{
+		"Nextcloud",
+		"ownCloud",
+		"Hetzner Storage Box",
+		"Custom WebDAV server",
+	}
+
+	preset := utils.PromptChoice("Choose a preset or custom configuration:", presets, 0)
+
+	switch preset {
+	case 0: // Nextcloud
+		server := utils.PromptString("Nextcloud server URL (e.g., https://cloud.example.com)", "")
+		username := utils.PromptString("Username", "")
+		config.Storage.Endpoint = fmt.Sprintf("%s/remote.php/dav/files/%s/", strings.TrimSuffix(server, "/"), username)
+	case 1: // ownCloud
+		server := utils.PromptString("ownCloud server URL (e.g., https://cloud.example.com)", "")
+		config.Storage.Endpoint = fmt.Sprintf("%s/remote.php/webdav/", strings.TrimSuffix(server, "/"))
+	case 2: // Hetzner
+		username := utils.PromptString("Hetzner Storage Box username (e.g., u123456-sub1)", "")
+		config.Storage.Endpoint = fmt.Sprintf("https://%s.your-storagebox.de/", username)
+	case 3: // Custom
+		config.Storage.Endpoint = utils.PromptString("WebDAV URL", "https://webdav.example.com/")
+	}
+
+	config.Storage.Username = utils.PromptString("Username", "")
+	config.Storage.Password = utils.PromptPassword("Password")
+
+	return nil
+}
+
+// configureBackupInteractive configure la sauvegarde de manière interactive
+func configureBackupInteractive(config *utils.Config) error {
+	utils.PrintSection("Backup Configuration")
+
+	// Génération automatique de la clé de chiffrement
+	if utils.PromptYesNo("Generate a secure encryption key automatically?", true) {
+		encryptionKey, err := crypto.GenerateKeyV2(crypto.AES256GCM)
+		if err != nil {
+			return fmt.Errorf("error generating encryption key: %w", err)
+		}
+		config.Backup.EncryptionKey = hex.EncodeToString([]byte(encryptionKey))
+		utils.PrintSuccess("Encryption key generated automatically")
+	} else {
+		config.Backup.EncryptionKey = utils.PromptString("Encryption key (64 hex characters)", "")
+	}
+
+	// Algorithme de chiffrement
+	algorithms := []string{
+		"AES-256-GCM (recommended, hardware accelerated)",
+		"XChaCha20-Poly1305 (recommended for older hardware)",
+	}
+	algoChoice := utils.PromptChoice("Choose encryption algorithm:", algorithms, 0)
+	if algoChoice == 0 {
+		config.Backup.EncryptionAlgo = "aes-256-gcm"
+	} else {
+		config.Backup.EncryptionAlgo = "xchacha20-poly1305"
+	}
+
+	// Performance settings
+	utils.PrintInfo("Performance settings (optimized defaults):")
+
+	config.Backup.MaxWorkers = utils.PromptInt("Number of parallel workers", 32, 1, 100)
+
+	checksumModes := []string{
+		"fast (recommended - 5x faster, very secure)",
+		"full (slowest - maximum security)",
+		"metadata (fastest - 10x faster, good security)",
+	}
+	checksumChoice := utils.PromptChoice("Choose checksum mode:", checksumModes, 0)
+	switch checksumChoice {
+	case 0:
+		config.Backup.ChecksumMode = "fast"
+	case 1:
+		config.Backup.ChecksumMode = "full"
+	case 2:
+		config.Backup.ChecksumMode = "metadata"
+	}
+
+	config.Backup.CompressionLevel = utils.PromptInt("Compression level (1=fast, 9=best)", 3, 1, 9)
+	config.Backup.BufferSize = utils.PromptString("I/O buffer size", "64MB")
+	config.Backup.BatchSize = utils.PromptInt("Batch size for small files", 50, 1, 1000)
+	config.Backup.BatchSizeLimit = utils.PromptString("Batch size limit", "10MB")
+
+	// Skip patterns
+	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, etc.)?", true) {
+		config.Backup.SkipPatterns = []string{
+			"*.tmp", "*.cache", "*.log", ".DS_Store", "Thumbs.db",
+			"*.swp", "*.swo", "node_modules/", ".git/", "__pycache__/",
+		}
+		utils.PrintSuccess("Skip patterns configured")
+	}
+
+	return nil
+}
+
+// configureRetentionInteractive configure la rétention de manière interactive
+func configureRetentionInteractive(config *utils.Config) error {
+	utils.PrintSection("Retention Configuration")
+
+	config.Retention.Days = utils.PromptInt("Retention period in days", 30, 1, 3650)
+	config.Retention.MaxBackups = utils.PromptInt("Maximum number of backups to keep", 10, 1, 1000)
 
 	return nil
 }

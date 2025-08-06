@@ -1,5 +1,44 @@
 # Changelog
 
+## [2.1.0] - 2024-08-07
+
+### 🆕 Major Features Added
+- **Automatic Retention Management**: Configurable retention policies with automatic cleanup
+  - Age-based retention (days)
+  - Count-based retention (max backups)
+  - Manual retention commands (`retention --info`, `retention --apply`)
+- **Interactive Configuration Wizard**: Complete guided setup experience
+  - Storage type selection with visual menu
+  - Service presets (AWS, Scaleway, DigitalOcean, Nextcloud, ownCloud, Hetzner)
+  - Automatic encryption key generation
+  - Performance optimization settings
+  - Retention policy configuration
+
+### ⚡ Performance Optimizations
+- **Adaptive Compression**: Skip compression for already compressed files (images, videos, archives)
+- **File Filtering**: Configurable skip patterns for temporary files, caches, etc.
+- **Buffered I/O**: Configurable buffer sizes for optimal file reading performance
+- **Increased Parallelism**: Default 32 workers for better multi-core utilization
+- **Batch Processing**: Framework for small file batching (configurable)
+
+### 🧹 Code Quality & Maintenance
+- **Configuration Cleanup**: Removed redundant `source_path` from config (use CLI argument)
+- **Complete English Translation**: Fixed all remaining French messages
+- **Enhanced Error Messages**: Improved error reporting and user feedback
+- **Linting Compliance**: Full golangci-lint compliance with security checks
+- **Code Refactoring**: Reduced cyclomatic complexity in core functions
+
+### 🔧 Technical Improvements
+- **Retention Manager**: New dedicated package for backup lifecycle management
+- **Interactive Utilities**: New utility package for user interaction
+- **Enhanced Validation**: Improved configuration validation with type-specific checks
+- **Better Progress Reporting**: Enhanced progress indicators for long operations
+
+### 📚 Documentation Updates
+- **Updated README**: Added interactive configuration guide and retention management
+- **Performance Guide**: Detailed explanation of checksum modes and optimization settings
+- **Configuration Examples**: Updated with new optimized defaults
+
 ## [2.0.0] - 2024-08-06
 
 ### 🚀 Major Features Added

@@ -112,7 +112,7 @@ func (c *Client) Upload(key string, data []byte) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("error during l'upload: %w", err)
+		return fmt.Errorf("error during upload: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -177,7 +177,7 @@ func (c *Client) DeleteObject(key string) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("error during la suppression: %w", err)
+		return fmt.Errorf("error during deletion: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -224,7 +224,7 @@ func (c *Client) ListObjects(prefix string) ([]ObjectInfo, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error during la liste: %w", err)
+		return nil, fmt.Errorf("error during listing: %w", err)
 	}
 	defer resp.Body.Close()
 

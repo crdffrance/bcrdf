@@ -145,7 +145,7 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 	if m.storageClient == nil {
 		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
+			return nil, fmt.Errorf("error initializing storage client: %w", err)
 		}
 		m.storageClient = storageClient
 	}
@@ -182,7 +182,7 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 	if m.storageClient == nil {
 		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
+			return fmt.Errorf("error initializing storage client: %w", err)
 		}
 		m.storageClient = storageClient
 	}
@@ -196,7 +196,7 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 	// Sauvegarder dans S3
 	indexKey := fmt.Sprintf("indexes/%s.json", index.BackupID)
 	if err := m.storageClient.Upload(indexKey, data); err != nil {
-		return fmt.Errorf("error saving de l'index: %w", err)
+		return fmt.Errorf("error saving index: %w", err)
 	}
 
 	utils.Info("Index saved: %s", indexKey)
@@ -308,8 +308,8 @@ func (m *Manager) showBackupDetails(backupID string) error {
 	fmt.Printf("Chemin source: %s\n", index.SourcePath)
 	fmt.Printf("Nombre de fichiers: %d\n", index.TotalFiles)
 	fmt.Printf("Taille totale: %.1f MB\n", float64(index.TotalSize)/(1024*1024))
-	fmt.Printf("Taille compressede: %.1f MB\n", float64(index.CompressedSize)/(1024*1024))
-	fmt.Printf("Taille encryptede: %.1f MB\n", float64(index.EncryptedSize)/(1024*1024))
+	fmt.Printf("Compressed size: %.1f MB\n", float64(index.CompressedSize)/(1024*1024))
+	fmt.Printf("Encrypted size: %.1f MB\n", float64(index.EncryptedSize)/(1024*1024))
 
 	fmt.Printf("\n📁 Fichiers:\n")
 	for i, file := range index.Files {
@@ -376,7 +376,7 @@ func (m *Manager) listIndexes() ([]BackupMetadata, error) {
 	if m.storageClient == nil {
 		storageClient, err := storage.NewStorageClient(m.config)
 		if err != nil {
-			return nil, fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
+			return nil, fmt.Errorf("error initializing storage client: %w", err)
 		}
 		m.storageClient = storageClient
 	}
@@ -384,7 +384,7 @@ func (m *Manager) listIndexes() ([]BackupMetadata, error) {
 	// Lister les objets dans le préfixe indexes/
 	objects, err := m.storageClient.ListObjects("indexes/")
 	if err != nil {
-		return nil, fmt.Errorf("error during la liste des index: %w", err)
+		return nil, fmt.Errorf("error listing indexes: %w", err)
 	}
 
 	// Extraire les clés des objets

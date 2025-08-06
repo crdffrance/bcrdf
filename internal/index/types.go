@@ -87,10 +87,7 @@ func NewFileEntryWithMode(path string, info os.FileInfo, checksumMode string) (*
 	return entry, nil
 }
 
-// calculateFileChecksum calculates SHA256 checksum of a file (legacy - full mode)
-func calculateFileChecksum(path string) (string, error) {
-	return calculateFileChecksumWithMode(path, nil, "full")
-}
+
 
 // calculateFileChecksumWithMode calculates checksum based on mode
 func calculateFileChecksumWithMode(path string, info os.FileInfo, mode string) (string, error) {
@@ -195,19 +192,7 @@ func calculateDirectoryChecksum(path string, info os.FileInfo) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// getUserName récupère le nom d'utilisateur par UID
-func getUserName(uid int) string {
-	// Implémentation simplifiée - dans un vrai projet, on utiliserait
-	// user.LookupId() mais cela nécessite des permissions spéciales
-	return "unknown"
-}
 
-// getGroupName récupère le nom de groupe par GID
-func getGroupName(gid int) string {
-	// Implémentation simplifiée - dans un vrai projet, on utiliserait
-	// user.LookupGroupId() mais cela nécessite des permissions spéciales
-	return "unknown"
-}
 
 // GetStorageKey génère une clé de stockage unique pour un fichier
 func (f *FileEntry) GetStorageKey() string {

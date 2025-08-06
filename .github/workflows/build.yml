@@ -26,7 +26,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -87,7 +87,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -126,7 +126,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bcrdf-${{ matrix.target }}
           path: dist/bcrdf-${{ matrix.target }}.*
@@ -138,17 +138,19 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Create release assets
         run: |
           mkdir -p release-assets
-          find . -name "*.zip" -o -name "*.tar.gz" | while read file; do
+          find artifacts -name "*.zip" -o -name "*.tar.gz" | while read file; do
             cp "$file" release-assets/
           done
 
       - name: Create release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
           body: |

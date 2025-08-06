@@ -111,10 +111,13 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p dist
+          pwd
+          ls -la
+          ls -la cmd/bcrdf/
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build \
             -ldflags "-X main.Version=${{ steps.version.outputs.version }}-${{ matrix.target }}" \
             -o dist/bcrdf-${{ matrix.target }}${{ matrix.os == 'windows' && '.exe' || '' }} \
-            ./cmd/bcrdf
+            cmd/bcrdf/main.go
 
       - name: Create archive
         run: |

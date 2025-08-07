@@ -189,88 +189,110 @@ func (m *Manager) deleteBackups(backups []BackupInfo, verbose bool) error {
 	var errors []string
 
 	for _, backup := range backups {
-		if verbose {
-			utils.Info("Deleting backup: %s (age: %v)", backup.ID, time.Since(backup.Timestamp).Round(time.Hour))
-		} else {
-			utils.ProgressStep(fmt.Sprintf("Deleting backup: %s", backup.ID))
-		}
-
-		// Charger l'index seulement si nécessaire pour la suppression
-		var backupIndex *index.BackupIndex
-		if backup.Index == nil {
-			// Charger l'index seulement pour la suppression
-			loadedIndex, err := m.indexMgr.LoadIndex(backup.ID)
-			if err != nil {
-				errorMsg := fmt.Sprintf("error loading index for %s: %v", backup.ID, err)
-				errors = append(errors, errorMsg)
-				if verbose {
-					utils.Warn("%s", errorMsg)
-				}
-				continue
-			}
-			backupIndex = loadedIndex
-		} else {
-			backupIndex = backup.Index
-		}
-
-		// Supprimer les fichiers de données
-		if verbose {
-			utils.Info("Deleting %d files for backup %s", len(backupIndex.Files), backup.ID)
-		}
-		if err := m.deleteBackupFiles(backupIndex); err != nil {
-			errorMsg := fmt.Sprintf("error deleting files for %s: %v", backup.ID, err)
-			errors = append(errors, errorMsg)
-			if verbose {
-				utils.Warn("%s", errorMsg)
-			}
+		if err := m.deleteSingleBackup(backup, verbose); err != nil {
+			errors = append(errors, err.Error())
 			continue
 		}
-		if verbose {
-			utils.Info("✅ All files deleted for backup %s", backup.ID)
-		}
-
-		// Supprimer l'index
-		if verbose {
-			utils.Info("Deleting index for backup %s", backup.ID)
-		}
-		if err := m.deleteBackupIndex(backup.ID); err != nil {
-			errorMsg := fmt.Sprintf("error deleting index for %s: %v", backup.ID, err)
-			errors = append(errors, errorMsg)
-			if verbose {
-				utils.Warn("%s", errorMsg)
-			}
-			continue
-		}
-		if verbose {
-			utils.Info("✅ Index deleted for backup %s", backup.ID)
-		}
-
 		deletedCount++
-		if verbose {
-			utils.Info("✅ Backup %s deleted successfully", backup.ID)
-		}
 	}
 
-	// Rapporter les résultats
+	return m.reportDeletionResults(deletedCount, errors, verbose)
+}
+
+// deleteSingleBackup deletes a single backup
+func (m *Manager) deleteSingleBackup(backup BackupInfo, verbose bool) error {
+	m.logDeletionStart(backup, verbose)
+
+	backupIndex, err := m.loadBackupIndexIfNeeded(backup)
+	if err != nil {
+		return fmt.Errorf("error loading index for %s: %v", backup.ID, err)
+	}
+
+	if err := m.deleteBackupData(backup, backupIndex, verbose); err != nil {
+		return fmt.Errorf("error deleting files for %s: %v", backup.ID, err)
+	}
+
+	if err := m.deleteBackupIndex(backup.ID); err != nil {
+		return fmt.Errorf("error deleting index for %s: %v", backup.ID, err)
+	}
+
+	m.logDeletionSuccess(backup, verbose)
+	return nil
+}
+
+// logDeletionStart logs the start of backup deletion
+func (m *Manager) logDeletionStart(backup BackupInfo, verbose bool) {
+	if verbose {
+		utils.Info("Deleting backup: %s (age: %v)", backup.ID, time.Since(backup.Timestamp).Round(time.Hour))
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Deleting backup: %s", backup.ID))
+	}
+}
+
+// loadBackupIndexIfNeeded loads the backup index if not already loaded
+func (m *Manager) loadBackupIndexIfNeeded(backup BackupInfo) (*index.BackupIndex, error) {
+	if backup.Index != nil {
+		return backup.Index, nil
+	}
+
+	return m.indexMgr.LoadIndex(backup.ID)
+}
+
+// deleteBackupData deletes the backup data files
+func (m *Manager) deleteBackupData(backup BackupInfo, backupIndex *index.BackupIndex, verbose bool) error {
+	if verbose {
+		utils.Info("Deleting %d files for backup %s", len(backupIndex.Files), backup.ID)
+	}
+
+	if err := m.deleteBackupFiles(backupIndex); err != nil {
+		return err
+	}
+
+	if verbose {
+		utils.Info("✅ All files deleted for backup %s", backup.ID)
+	}
+
+	return nil
+}
+
+// logDeletionSuccess logs successful deletion
+func (m *Manager) logDeletionSuccess(backup BackupInfo, verbose bool) {
+	if verbose {
+		utils.Info("✅ Index deleted for backup %s", backup.ID)
+		utils.Info("✅ Backup %s deleted successfully", backup.ID)
+	}
+}
+
+// reportDeletionResults reports the final deletion results
+func (m *Manager) reportDeletionResults(deletedCount int, errors []string, verbose bool) error {
 	if len(errors) > 0 {
-		if verbose {
-			utils.Warn("Retention cleanup completed with %d errors:", len(errors))
-			for _, err := range errors {
-				utils.Warn("  - %s", err)
-			}
-		} else {
-			utils.ProgressWarning(fmt.Sprintf("Deleted %d backups with %d errors", deletedCount, len(errors)))
-		}
+		m.reportErrors(deletedCount, errors, verbose)
 		return fmt.Errorf("retention cleanup completed with %d errors", len(errors))
 	}
 
+	m.reportSuccess(deletedCount, verbose)
+	return nil
+}
+
+// reportErrors reports deletion errors
+func (m *Manager) reportErrors(deletedCount int, errors []string, verbose bool) {
+	if verbose {
+		utils.Warn("Retention cleanup completed with %d errors:", len(errors))
+		for _, err := range errors {
+			utils.Warn("  - %s", err)
+		}
+	} else {
+		utils.ProgressWarning(fmt.Sprintf("Deleted %d backups with %d errors", deletedCount, len(errors)))
+	}
+}
+
+// reportSuccess reports successful deletion
+func (m *Manager) reportSuccess(deletedCount int, verbose bool) {
 	if verbose {
 		utils.Info("✅ Retention cleanup completed: %d backups deleted", deletedCount)
 	} else {
 		utils.ProgressSuccess(fmt.Sprintf("Retention cleanup: %d backups deleted", deletedCount))
 	}
-
-	return nil
 }
 
 // deleteBackupFiles supprime les fichiers de données d'une sauvegarde

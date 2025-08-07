@@ -180,121 +180,26 @@ func (m *Manager) initializeComponents() error {
 
 // findPreviousBackup trouve la sauvegarde précédente
 func (m *Manager) findPreviousBackup(currentBackupName string) (*index.BackupIndex, error) {
-	// Charger la configuration si nécessaire
-	if m.config == nil {
-		config, err := utils.LoadConfig(m.configFile)
-		if err != nil {
-			return nil, err
-		}
-		m.config = config
+	if err := m.ensureInitialized(); err != nil {
+		return nil, err
 	}
 
-	// Initialiser le client S3 si nécessaire
-	if m.storageClient == nil {
-		storageClient, err := storage.NewStorageClient(m.config)
-		if err != nil {
-			return nil, fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
-		}
-		m.storageClient = storageClient
-	}
-
-	// Lister les index disponibles
-	objects, err := m.storageClient.ListObjects("indexes/")
+	keys, err := m.listBackupIndexes()
 	if err != nil {
-		utils.Warn("Impossible de lister les index: %v", err)
-		return nil, nil
+		return nil, err
 	}
-
-	// Extraire les clés des objets
-	keys := make([]string, len(objects))
-	for i, obj := range objects {
-		keys[i] = obj.Key
-	}
-
-	utils.Debug("Found %d indexes: %v", len(keys), keys)
 
 	if len(keys) == 0 {
 		utils.Debug("No index found, first backup")
 		return nil, nil
 	}
 
-	// Optimisation : Trouver l'index le plus récent sans télécharger tous les index
-	var latestKey string
-	var latestTime time.Time
+	filteredKeys := m.filterKeysByName(keys, currentBackupName)
+	keysToUse := m.selectKeysToUse(keys, filteredKeys)
 
-	// Trier les clés par nom (les plus récentes en dernier)
-	// ATTENTION: Tri alphabétique peut être incorrect pour les dates
-	// On va trier par timestamp extrait du nom
-	sort.Slice(keys, func(i, j int) bool {
-		// Extraire le timestamp du nom de fichier
-		// Format attendu: nom-YYYYMMDD-HHMMSS.json
-		keyI := keys[i]
-		keyJ := keys[j]
-
-		// Extraire la partie timestamp (dernière partie avant .json)
-		partsI := strings.Split(strings.TrimSuffix(keyI, ".json"), "-")
-		partsJ := strings.Split(strings.TrimSuffix(keyJ, ".json"), "-")
-
-		if len(partsI) < 2 || len(partsJ) < 2 {
-			// Fallback au tri alphabétique si format incorrect
-			return keyI < keyJ
-		}
-
-		// Comparer les timestamps (YYYYMMDD-HHMMSS)
-		timestampI := partsI[len(partsI)-2] + "-" + partsI[len(partsI)-1]
-		timestampJ := partsJ[len(partsJ)-2] + "-" + partsJ[len(partsJ)-1]
-
-		return timestampI < timestampJ
-	})
-
-	// Prendre le dernier index (le plus récent) sans télécharger les autres
-	// Filtrer par nom de backup si spécifié
-	var filteredKeys []string
-
-	// Filtrer par nom de backup si spécifié
-	if currentBackupName != "" {
-		for _, key := range keys {
-			if strings.HasSuffix(key, ".json") {
-				keyBackupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
-				// Extraire le nom de backup (partie avant le timestamp)
-				parts := strings.Split(keyBackupID, "-")
-				if len(parts) >= 3 {
-					extractedBackupName := strings.Join(parts[:len(parts)-2], "-")
-					if extractedBackupName == currentBackupName {
-						filteredKeys = append(filteredKeys, key)
-					}
-				}
-			}
-		}
-		utils.Debug("Filtered backups by name '%s': %d found", currentBackupName, len(filteredKeys))
-	}
-
-	// Si on a des clés filtrées, utiliser celles-ci, sinon utiliser toutes
-	keysToUse := keys
-	if len(filteredKeys) > 0 {
-		keysToUse = filteredKeys
-	}
-
-	for i := len(keysToUse) - 1; i >= 0; i-- {
-		key := keysToUse[i]
-		if strings.HasSuffix(key, ".json") {
-			// Extraire l'ID de sauvegarde du nom de fichier
-			backupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
-			utils.Debug("Checking backup ID: %s", backupID)
-
-			// Charger uniquement cet index (le plus récent)
-			index, err := m.indexMgr.LoadIndex(backupID)
-			if err != nil {
-				utils.Warn("Impossible de charger l'index %s: %v", backupID, err)
-				continue
-			}
-
-			// Utiliser cet index comme le plus récent
-			latestTime = index.CreatedAt
-			latestKey = key
-			utils.Debug("Selected previous backup: %s (created: %s)", backupID, latestTime.Format("2006-01-02 15:04:05"))
-			break // Sortir après le premier index valide trouvé
-		}
+	latestKey, latestTime, err := m.findLatestBackup(keysToUse)
+	if err != nil {
+		return nil, err
 	}
 
 	if latestKey == "" {
@@ -302,13 +207,134 @@ func (m *Manager) findPreviousBackup(currentBackupName string) (*index.BackupInd
 		return nil, nil
 	}
 
-	// Extraire l'ID de la sauvegarde la plus récente
+	return m.loadBackupIndex(latestKey, latestTime)
+}
+
+// ensureInitialized ensures the manager is properly initialized
+func (m *Manager) ensureInitialized() error {
+	if m.config == nil {
+		config, err := utils.LoadConfig(m.configFile)
+		if err != nil {
+			return err
+		}
+		m.config = config
+	}
+
+	if m.storageClient == nil {
+		storageClient, err := storage.NewStorageClient(m.config)
+		if err != nil {
+			return fmt.Errorf("error during l'initialisation du client de stockage: %w", err)
+		}
+		m.storageClient = storageClient
+	}
+
+	return nil
+}
+
+// listBackupIndexes lists all available backup indexes
+func (m *Manager) listBackupIndexes() ([]string, error) {
+	objects, err := m.storageClient.ListObjects("indexes/")
+	if err != nil {
+		utils.Warn("Impossible de lister les index: %v", err)
+		return nil, err
+	}
+
+	keys := make([]string, len(objects))
+	for i, obj := range objects {
+		keys[i] = obj.Key
+	}
+
+	utils.Debug("Found %d indexes: %v", len(keys), keys)
+	return keys, nil
+}
+
+// filterKeysByName filters keys by backup name
+func (m *Manager) filterKeysByName(keys []string, backupName string) []string {
+	if backupName == "" {
+		return nil
+	}
+
+	var filteredKeys []string
+	for _, key := range keys {
+		if !strings.HasSuffix(key, ".json") {
+			continue
+		}
+
+		keyBackupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
+		parts := strings.Split(keyBackupID, "-")
+		if len(parts) >= 3 {
+			extractedBackupName := strings.Join(parts[:len(parts)-2], "-")
+			if extractedBackupName == backupName {
+				filteredKeys = append(filteredKeys, key)
+			}
+		}
+	}
+
+	utils.Debug("Filtered backups by name '%s': %d found", backupName, len(filteredKeys))
+	return filteredKeys
+}
+
+// selectKeysToUse selects which keys to use for processing
+func (m *Manager) selectKeysToUse(allKeys, filteredKeys []string) []string {
+	if len(filteredKeys) > 0 {
+		return filteredKeys
+	}
+	return allKeys
+}
+
+// findLatestBackup finds the latest backup from the given keys
+func (m *Manager) findLatestBackup(keys []string) (string, time.Time, error) {
+	m.sortKeysByTimestamp(keys)
+
+	for i := len(keys) - 1; i >= 0; i-- {
+		key := keys[i]
+		if !strings.HasSuffix(key, ".json") {
+			continue
+		}
+
+		backupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
+		utils.Debug("Checking backup ID: %s", backupID)
+
+		index, err := m.indexMgr.LoadIndex(backupID)
+		if err != nil {
+			utils.Warn("Impossible de charger l'index %s: %v", backupID, err)
+			continue
+		}
+
+		utils.Debug("Selected previous backup: %s (created: %s)", backupID, index.CreatedAt.Format("2006-01-02 15:04:05"))
+		return key, index.CreatedAt, nil
+	}
+
+	return "", time.Time{}, nil
+}
+
+// sortKeysByTimestamp sorts keys by timestamp
+func (m *Manager) sortKeysByTimestamp(keys []string) {
+	sort.Slice(keys, func(i, j int) bool {
+		keyI := keys[i]
+		keyJ := keys[j]
+
+		partsI := strings.Split(strings.TrimSuffix(keyI, ".json"), "-")
+		partsJ := strings.Split(strings.TrimSuffix(keyJ, ".json"), "-")
+
+		if len(partsI) < 2 || len(partsJ) < 2 {
+			return keyI < keyJ
+		}
+
+		timestampI := partsI[len(partsI)-2] + "-" + partsI[len(partsI)-1]
+		timestampJ := partsJ[len(partsJ)-2] + "-" + partsJ[len(partsJ)-1]
+
+		return timestampI < timestampJ
+	})
+}
+
+// loadBackupIndex loads the backup index for the given key
+func (m *Manager) loadBackupIndex(latestKey string, latestTime time.Time) (*index.BackupIndex, error) {
 	backupID := strings.TrimSuffix(strings.TrimPrefix(latestKey, "indexes/"), ".json")
 
 	utils.Info("Previous backup found: %s (created on %s)",
 		backupID, latestTime.Format("2006-01-02 15:04:05"))
 
-	// Charger l'index de la sauvegarde précédente
 	previousIndex, err := m.indexMgr.LoadIndex(backupID)
 	if err != nil {
 		utils.Warn("Unable to load previous backup index: %v", err)

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/en/).
 
+## [2.3.2] - 2025-08-07
+
+### 🔧 **Fixed**
+- **Fixed GitHub Actions release workflow** with proper permissions
+- **Updated documentation** with correct version (v2.3.2) and Go version (1.24)
+- **Improved release automation** for automatic binary builds
+
+### 📚 **Documentation**
+- **Updated README** with latest version and Go requirements
+- **Fixed download links** for v2.3.2 release
+- **Corrected Go version** from 1.21+ to 1.24+
+
 ## [2.3.0] - 2025-08-07
 
 ### ✨ **Added**

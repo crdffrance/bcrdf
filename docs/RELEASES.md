@@ -1,5 +1,40 @@
 # BCRDF Releases
 
+## Version 2.3.2 - Release Automation Fix (2025-08-07)
+
+### 🔧 **Release Fixes**
+- **Fixed GitHub Actions release workflow** with proper permissions
+- **Updated documentation** with correct version (v2.3.2) and Go version (1.24)
+- **Improved release automation** for automatic binary builds
+
+### 📦 **Release Files**
+
+#### **Darwin (macOS)**
+- `bcrdf-darwin-x64-v2.3.2` - **Latest version with automatic release**
+- `bcrdf-darwin-arm64-v2.3.2` - macOS ARM64
+
+#### **Linux**
+- `bcrdf-linux-x64-v2.3.2` - Linux x64
+- `bcrdf-linux-arm64-v2.3.2` - Linux ARM64
+- `bcrdf-linux-x32-v2.3.2` - Linux x32
+
+#### **Windows**
+- `bcrdf-windows-x64-v2.3.2.zip` - Windows x64
+- `bcrdf-windows-arm64-v2.3.2.zip` - Windows ARM64
+- `bcrdf-windows-x32-v2.3.2.zip` - Windows x32
+
+### 🚀 **Installation**
+```bash
+# Download latest version
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.2/bcrdf-darwin-x64-v2.3.2
+
+# Make executable
+chmod +x bcrdf-darwin-x64-v2.3.2
+
+# Test
+./bcrdf-darwin-x64-v2.3.2 init config.yaml --test
+```
+
 ## Version 2.3.0 - Automatic Chunking (2025-08-07)
 
 ### 🎯 **Major New Features**
@@ -100,20 +135,20 @@ backup:
 ## Release Notes
 
 ### 🔄 **Compatibility**
-- **v2.3.0** : Compatible with v1.x backups
+- **v2.3.2** : Compatible with all previous versions
 - **Migration** : Automatic, no action required
-- **Configuration** : Optional parameter addition
+- **Configuration** : Backward compatible
 
 ### 🛠️ **Installation**
 ```bash
 # Download latest version
-wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.2/bcrdf-darwin-x64-v2.3.2
 
 # Make executable
-chmod +x bcrdf-darwin-x64-v2.3.0
+chmod +x bcrdf-darwin-x64-v2.3.2
 
 # Test
-./bcrdf-darwin-x64-v2.3.0 init config.yaml --test
+./bcrdf-darwin-x64-v2.3.2 init config.yaml --test
 ```
 
 ### 📚 **Documentation**
@@ -123,6 +158,7 @@ chmod +x bcrdf-darwin-x64-v2.3.0
 - **Troubleshooting** : Complete guide
 
 ### 🐛 **Known Fixes**
+- **v2.3.2** : Fixed GitHub Actions release workflow
 - **v2.3.0** : Fixed restoration paths
 - **v2.3.0** : Improved error handling
 - **v2.3.0** : Optimized memory for large files 

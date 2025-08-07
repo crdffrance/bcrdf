@@ -1,17 +1,22 @@
-# 🎉 BCRDF v2.3.0 - Final Release
+# 🎉 BCRDF v2.3.2 - Final Release
 
 ## 📦 **Release Files**
 
 ### **Darwin (macOS)**
-- `bcrdf-darwin-x64-v2.3.0` - **Final version with chunking**
-- `bcrdf-darwin-x64-chunked` - Version with chunking
-- `bcrdf-darwin-x64-chunked-fixed` - Fixed version
+- `bcrdf-darwin-x64-v2.3.2` - **Latest version with automatic release**
+- `bcrdf-darwin-arm64-v2.3.2` - macOS ARM64
 
 ### **Linux**
-- `bcrdf-linux-x64-v2.3.0` - Final version
-- `bcrdf-linux-x64-fixed` - Fixed version
+- `bcrdf-linux-x64-v2.3.2` - Linux x64
+- `bcrdf-linux-arm64-v2.3.2` - Linux ARM64
+- `bcrdf-linux-x32-v2.3.2` - Linux x32
 
-## ✨ **New Features v2.3.0**
+### **Windows**
+- `bcrdf-windows-x64-v2.3.2.zip` - Windows x64
+- `bcrdf-windows-arm64-v2.3.2.zip` - Windows ARM64
+- `bcrdf-windows-x32-v2.3.2.zip` - Windows x32
+
+## ✨ **New Features v2.3.2**
 
 ### 🚀 **Automatic Chunking**
 - **Intelligent chunking** for files > 1GB
@@ -24,6 +29,11 @@
 - **Robust error handling** and automatic retry
 - **Advanced compression and encryption**
 - **Intelligent incremental backups**
+
+### 🔧 **Release Automation**
+- **Fixed GitHub Actions release workflow** with proper permissions
+- **Updated documentation** with correct version (v2.3.2) and Go version (1.24)
+- **Improved release automation** for automatic binary builds
 
 ## 📊 **Performance Metrics**
 
@@ -62,25 +72,25 @@ backup:
 ### **Installation**
 ```bash
 # Download final version
-wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.2/bcrdf-darwin-x64-v2.3.2
 
 # Make executable
-chmod +x bcrdf-darwin-x64-v2.3.0
+chmod +x bcrdf-darwin-x64-v2.3.2
 
 # Test configuration
-./bcrdf-darwin-x64-v2.3.0 init configs/config-scaleway-s3-ultra-optimized.yaml --test
+./bcrdf-darwin-x64-v2.3.2 init configs/config-scaleway-s3-ultra-optimized.yaml --test
 ```
 
 ### **Usage**
 ```bash
 # Initialize
-./bcrdf-darwin-x64-v2.3.0 init configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.2 init configs/config-scaleway-s3-ultra-optimized.yaml
 
 # Backup with automatic chunking
-./bcrdf-darwin-x64-v2.3.0 backup -n "my-backup" -s "/path/to/data" --config configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.2 backup -n "my-backup" -s "/path/to/data" --config configs/config-scaleway-s3-ultra-optimized.yaml
 
 # Restore with chunk support
-./bcrdf-darwin-x64-v2.3.0 restore -b "backup-id" -d "/restore/path" --config configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.2 restore -b "backup-id" -d "/restore/path" --config configs/config-scaleway-s3-ultra-optimized.yaml
 ```
 
 ## 📚 **Documentation**
@@ -93,9 +103,9 @@ chmod +x bcrdf-darwin-x64-v2.3.0
 ## 🔄 **Migration from v1.x**
 
 ### **Compatibility**
-- **v2.3.0** : Compatible with v1.x backups
+- **v2.3.2** : Compatible with all previous versions
 - **Migration** : Automatic, no action required
-- **Configuration** : Optional parameter addition
+- **Configuration** : Backward compatible
 
 ### **Configuration Changes**
 ```yaml
@@ -107,6 +117,8 @@ backup:
 
 ## 🐛 **Applied Fixes**
 
+- **Fixed GitHub Actions release workflow** with proper permissions
+- **Updated documentation** with correct version (v2.3.2) and Go version (1.24)
 - **Fixed restoration paths** for standard files
 - **Fixed subdirectory handling** during restoration
 - **Improved network error handling**
@@ -118,7 +130,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-**BCRDF v2.3.0** - Backup Copy with Redundant Data Format
+**BCRDF v2.3.2** - Backup Copy with Redundant Data Format
 *Secure and performant backups with automatic chunking*
 
 🎉 **Final release ready for production!**

@@ -1,8 +1,8 @@
 # BCRDF - Backup Copy with Redundant Data Format
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v2.3.0-orange.svg)](docs/RELEASES.md)
+[![Release](https://img.shields.io/badge/Release-v2.3.2-orange.svg)](docs/RELEASES.md)
 
 **BCRDF** is a modern and sophisticated backup system written in Go, designed to provide secure incremental backups with multi-storage support (S3 and WebDAV) and **automatic chunking** for large files.
 
@@ -11,8 +11,8 @@
 ### **1. Installation**
 ```bash
 # Download the latest release
-wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
-chmod +x bcrdf-darwin-x64-v2.3.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.2/bcrdf-darwin-x64-v2.3.2
+chmod +x bcrdf-darwin-x64-v2.3.2
 
 # Or build from source
 git clone https://github.com/your-repo/bcrdf.git
@@ -85,17 +85,17 @@ cp configs/config-s3-complete.yaml config.yaml
 ## 🛠️ **Installation**
 
 ### **Prerequisites**
-- Go 1.21+ (for building from source)
+- Go 1.24+ (for building from source)
 - Configured S3/WebDAV access
 
 ### **Binary Installation**
 ```bash
 # Download for your platform
-wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
-chmod +x bcrdf-darwin-x64-v2.3.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.2/bcrdf-darwin-x64-v2.3.2
+chmod +x bcrdf-darwin-x64-v2.3.2
 
 # Test installation
-./bcrdf-darwin-x64-v2.3.0 version
+./bcrdf-darwin-x64-v2.3.2 version
 ```
 
 ### **Build from Source**
@@ -395,5 +395,5 @@ Contributions are welcome! Please:
 
 ---
 
-**BCRDF v2.3.0** - Backup Copy with Redundant Data Format
+**BCRDF v2.3.2** - Backup Copy with Redundant Data Format
 *Secure and performant backups with automatic chunking*

@@ -55,6 +55,11 @@ func NewFileEntry(path string, info os.FileInfo) (*FileEntry, error) {
 
 // NewFileEntryWithMode creates a new file entry with specified checksum mode
 func NewFileEntryWithMode(path string, info os.FileInfo, checksumMode string) (*FileEntry, error) {
+	return NewFileEntryWithModeAndCache(path, info, checksumMode, nil)
+}
+
+// NewFileEntryWithModeAndCache creates a file entry with optional cache support
+func NewFileEntryWithModeAndCache(path string, info os.FileInfo, checksumMode string, cache *ChecksumCache) (*FileEntry, error) {
 	var checksum string
 	var err error
 
@@ -62,10 +67,20 @@ func NewFileEntryWithMode(path string, info os.FileInfo, checksumMode string) (*
 		// For directories, use a special checksum based on path and permissions
 		checksum = calculateDirectoryChecksum(path, info)
 	} else {
-		// For files, calculate checksum based on mode
-		checksum, err = calculateFileChecksumWithMode(path, info, checksumMode)
-		if err != nil {
-			return nil, err
+		// For files, calculate checksum based on mode (with cache if available)
+		if cache != nil && checksumMode == "full" {
+			// For full mode, we can use the cache with file data
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			checksum = cache.GetOrCompute(path, info.Size(), info.ModTime(), data)
+		} else {
+			// For other modes or no cache, calculate normally
+			checksum, err = calculateFileChecksumWithMode(path, info, checksumMode)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

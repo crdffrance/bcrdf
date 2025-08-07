@@ -24,20 +24,24 @@ type Config struct {
 	} `mapstructure:"storage"`
 
 	Backup struct {
-		EncryptionKey    string   `mapstructure:"encryption_key"`
-		EncryptionAlgo   string   `mapstructure:"encryption_algo"`
-		CompressionLevel int      `mapstructure:"compression_level"`
-		MaxWorkers       int      `mapstructure:"max_workers"`
-		ChecksumMode     string   `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
-		SkipPatterns     []string `mapstructure:"skip_patterns"`
-		BufferSize       string   `mapstructure:"buffer_size"`
-		BatchSize        int      `mapstructure:"batch_size"`       // Number of files to batch together
-		BatchSizeLimit   string   `mapstructure:"batch_size_limit"` // Max size for batch upload (e.g., "10MB")
-		ChunkSize        string   `mapstructure:"chunk_size"`       // Chunk size for streaming operations
-		MemoryLimit      string   `mapstructure:"memory_limit"`     // Memory limit for large files
-		NetworkTimeout   int      `mapstructure:"network_timeout"`  // Network timeout in seconds
-		RetryAttempts    int      `mapstructure:"retry_attempts"`   // Number of retry attempts
-		RetryDelay       int      `mapstructure:"retry_delay"`      // Delay between retries in seconds
+		EncryptionKey       string   `mapstructure:"encryption_key"`
+		EncryptionAlgo      string   `mapstructure:"encryption_algo"`
+		CompressionLevel    int      `mapstructure:"compression_level"`
+		MaxWorkers          int      `mapstructure:"max_workers"`
+		ChecksumMode        string   `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
+		SkipPatterns        []string `mapstructure:"skip_patterns"`
+		BufferSize          string   `mapstructure:"buffer_size"`
+		BatchSize           int      `mapstructure:"batch_size"`           // Number of files to batch together
+		BatchSizeLimit      string   `mapstructure:"batch_size_limit"`     // Max size for batch upload (e.g., "10MB")
+		ChunkSize           string   `mapstructure:"chunk_size"`           // Chunk size for streaming operations
+		MemoryLimit         string   `mapstructure:"memory_limit"`         // Memory limit for large files
+		NetworkTimeout      int      `mapstructure:"network_timeout"`      // Network timeout in seconds
+		RetryAttempts       int      `mapstructure:"retry_attempts"`       // Number of retry attempts
+		RetryDelay          int      `mapstructure:"retry_delay"`          // Delay between retries in seconds
+		CacheEnabled        bool     `mapstructure:"cache_enabled"`        // Enable checksum caching
+		CacheMaxSize        int      `mapstructure:"cache_max_size"`       // Maximum cache entries
+		CacheMaxAge         int      `mapstructure:"cache_max_age"`        // Cache entry max age (minutes)
+		CompressionAdaptive bool     `mapstructure:"compression_adaptive"` // Enable adaptive compression
 	} `mapstructure:"backup"`
 
 	Retention struct {
@@ -111,6 +115,12 @@ backup:
   network_timeout: 300  # Network timeout in seconds (5 minutes)
   retry_attempts: 3  # Number of retry attempts for failed uploads
   retry_delay: 5  # Delay between retries in seconds
+  
+  # Phase 1 performance optimizations
+  cache_enabled: true  # Enable checksum caching for faster processing
+  cache_max_size: 10000  # Maximum number of cached checksums
+  cache_max_age: 60  # Cache entry max age in minutes
+  compression_adaptive: true  # Enable adaptive compression based on file size
   
   skip_patterns:  # Patterns to skip during backup (performance optimization)
     - "*.tmp"
@@ -285,6 +295,10 @@ func WriteConfig(config *Config, configFile string) error {
 	viper.Set("backup.network_timeout", config.Backup.NetworkTimeout)
 	viper.Set("backup.retry_attempts", config.Backup.RetryAttempts)
 	viper.Set("backup.retry_delay", config.Backup.RetryDelay)
+	viper.Set("backup.cache_enabled", config.Backup.CacheEnabled)
+	viper.Set("backup.cache_max_size", config.Backup.CacheMaxSize)
+	viper.Set("backup.cache_max_age", config.Backup.CacheMaxAge)
+	viper.Set("backup.compression_adaptive", config.Backup.CompressionAdaptive)
 
 	viper.Set("retention.days", config.Retention.Days)
 	viper.Set("retention.max_backups", config.Retention.MaxBackups)

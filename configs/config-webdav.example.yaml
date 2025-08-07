@@ -36,6 +36,12 @@ backup:
   retry_attempts: 3  # Number of retry attempts for failed uploads
   retry_delay: 5  # Delay between retries in seconds
   
+  # Phase 1 performance optimizations
+  cache_enabled: true  # Enable checksum caching for faster processing
+  cache_max_size: 10000  # Maximum number of cached checksums
+  cache_max_age: 60  # Cache entry max age in minutes
+  compression_adaptive: true  # Enable adaptive compression based on file size
+  
   skip_patterns:  # Patterns to skip during backup (performance optimization)
     - "*.tmp"
     - "*.cache" 

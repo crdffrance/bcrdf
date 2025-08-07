@@ -310,6 +310,12 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 	config.Backup.NetworkTimeout = 300
 	config.Backup.RetryAttempts = 3
 	config.Backup.RetryDelay = 5
+	
+	// Phase 1 performance optimizations
+	config.Backup.CacheEnabled = true
+	config.Backup.CacheMaxSize = 10000
+	config.Backup.CacheMaxAge = 60
+	config.Backup.CompressionAdaptive = true
 
 	config.Retention.Days = 30
 	config.Retention.MaxBackups = 10
@@ -529,6 +535,17 @@ func configureBackupInteractive(config *utils.Config) error {
 	config.Backup.NetworkTimeout = utils.PromptInt("Network timeout (seconds)", 300, 30, 3600)
 	config.Backup.RetryAttempts = utils.PromptInt("Retry attempts for failed uploads", 3, 0, 10)
 	config.Backup.RetryDelay = utils.PromptInt("Delay between retries (seconds)", 5, 1, 60)
+
+	// Phase 1 performance optimizations
+	utils.PrintInfo("Phase 1 Performance Optimizations:")
+	
+	config.Backup.CacheEnabled = utils.PromptYesNo("Enable checksum caching for faster processing?", true)
+	if config.Backup.CacheEnabled {
+		config.Backup.CacheMaxSize = utils.PromptInt("Maximum cache entries", 10000, 1000, 100000)
+		config.Backup.CacheMaxAge = utils.PromptInt("Cache entry max age (minutes)", 60, 10, 1440)
+	}
+	
+	config.Backup.CompressionAdaptive = utils.PromptYesNo("Enable adaptive compression based on file size?", true)
 
 	// Skip patterns
 	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, archives, etc.)?", true) {

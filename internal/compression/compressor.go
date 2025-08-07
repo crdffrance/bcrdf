@@ -27,7 +27,7 @@ func NewCompressor(level int) (*Compressor, error) {
 	}, nil
 }
 
-// CompressFile compresses data with adaptive compression based on file type
+// CompressFile compresses data with adaptive compression based on file type and size
 func (c *Compressor) CompressFile(data []byte, filePath string) ([]byte, error) {
 	// Check if file should be compressed based on extension
 	if !c.shouldCompress(filePath) {
@@ -35,7 +35,56 @@ func (c *Compressor) CompressFile(data []byte, filePath string) ([]byte, error) 
 		return data, nil
 	}
 
-	return c.Compress(data)
+	// Adaptive compression based on file size
+	return c.CompressAdaptive(data, filePath)
+}
+
+// CompressAdaptive uses different compression levels based on file size
+func (c *Compressor) CompressAdaptive(data []byte, filePath string) ([]byte, error) {
+	fileSize := len(data)
+	
+	// Very large files (> 100MB): use fast compression
+	if fileSize > 100*1024*1024 {
+		utils.Debug("Large file detected (%d bytes), using fast compression", fileSize)
+		return c.CompressWithLevel(data, 1) // Level 1 = fastest
+	}
+	
+	// Large files (10MB - 100MB): use balanced compression
+	if fileSize > 10*1024*1024 {
+		utils.Debug("Medium file detected (%d bytes), using balanced compression", fileSize)
+		return c.CompressWithLevel(data, 3) // Level 3 = balanced
+	}
+	
+	// Small files (< 10MB): use good compression
+	utils.Debug("Small file detected (%d bytes), using good compression", fileSize)
+	return c.CompressWithLevel(data, 6) // Level 6 = good compression
+}
+
+// CompressWithLevel compresses data with a specific compression level
+func (c *Compressor) CompressWithLevel(data []byte, level int) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Create GZIP writer with specified level
+	writer, err := gzip.NewWriterLevel(&buf, level)
+	if err != nil {
+		return nil, fmt.Errorf("error creating GZIP writer: %w", err)
+	}
+
+	// Write data
+	if _, err := writer.Write(data); err != nil {
+		return nil, fmt.Errorf("error writing data: %w", err)
+	}
+
+	// Close writer to finalize compression
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("error closing writer: %w", err)
+	}
+
+	compressed := buf.Bytes()
+	utils.Debug("Data compressed with level %d: %d bytes -> %d bytes (ratio: %.2f%%)",
+		level, len(data), len(compressed), float64(len(compressed))/float64(len(data))*100)
+
+	return compressed, nil
 }
 
 // Compress compresse des données avec GZIP

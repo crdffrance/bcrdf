@@ -1,17 +1,17 @@
-# 🎉 BCRDF v2.0.0 - Final Release
+# 🎉 BCRDF v2.3.0 - Final Release
 
 ## 📦 **Release Files**
 
 ### **Darwin (macOS)**
-- `bcrdf-darwin-x64-v2.0.0` - **Final version with chunking**
+- `bcrdf-darwin-x64-v2.3.0` - **Final version with chunking**
 - `bcrdf-darwin-x64-chunked` - Version with chunking
 - `bcrdf-darwin-x64-chunked-fixed` - Fixed version
 
 ### **Linux**
-- `bcrdf-linux-x64-v2.0.0` - Final version
+- `bcrdf-linux-x64-v2.3.0` - Final version
 - `bcrdf-linux-x64-fixed` - Fixed version
 
-## ✨ **New Features v2.0.0**
+## ✨ **New Features v2.3.0**
 
 ### 🚀 **Automatic Chunking**
 - **Intelligent chunking** for files > 1GB
@@ -62,25 +62,25 @@ backup:
 ### **Installation**
 ```bash
 # Download final version
-wget https://github.com/your-repo/bcrdf/releases/download/v2.0.0/bcrdf-darwin-x64-v2.0.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
 
 # Make executable
-chmod +x bcrdf-darwin-x64-v2.0.0
+chmod +x bcrdf-darwin-x64-v2.3.0
 
 # Test configuration
-./bcrdf-darwin-x64-v2.0.0 init configs/config-scaleway-s3-ultra-optimized.yaml --test
+./bcrdf-darwin-x64-v2.3.0 init configs/config-scaleway-s3-ultra-optimized.yaml --test
 ```
 
 ### **Usage**
 ```bash
 # Initialize
-./bcrdf-darwin-x64-v2.0.0 init configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.0 init configs/config-scaleway-s3-ultra-optimized.yaml
 
 # Backup with automatic chunking
-./bcrdf-darwin-x64-v2.0.0 backup -n "my-backup" -s "/path/to/data" --config configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.0 backup -n "my-backup" -s "/path/to/data" --config configs/config-scaleway-s3-ultra-optimized.yaml
 
 # Restore with chunk support
-./bcrdf-darwin-x64-v2.0.0 restore -b "backup-id" -d "/restore/path" --config configs/config-scaleway-s3-ultra-optimized.yaml
+./bcrdf-darwin-x64-v2.3.0 restore -b "backup-id" -d "/restore/path" --config configs/config-scaleway-s3-ultra-optimized.yaml
 ```
 
 ## 📚 **Documentation**
@@ -93,7 +93,7 @@ chmod +x bcrdf-darwin-x64-v2.0.0
 ## 🔄 **Migration from v1.x**
 
 ### **Compatibility**
-- **v2.0.0** : Compatible with v1.x backups
+- **v2.3.0** : Compatible with v1.x backups
 - **Migration** : Automatic, no action required
 - **Configuration** : Optional parameter addition
 
@@ -118,7 +118,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-**BCRDF v2.0.0** - Backup Copy with Redundant Data Format
+**BCRDF v2.3.0** - Backup Copy with Redundant Data Format
 *Secure and performant backups with automatic chunking*
 
 🎉 **Final release ready for production!**

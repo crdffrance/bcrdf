@@ -1,6 +1,6 @@
 # BCRDF Releases
 
-## Version 2.0.0 - Automatic Chunking (2025-08-07)
+## Version 2.3.0 - Automatic Chunking (2025-08-07)
 
 ### 🎯 **Major New Features**
 
@@ -44,12 +44,12 @@ backup:
 ### 📦 **Release Files**
 
 #### **Darwin (macOS)**
-- `bcrdf-darwin-x64-v2.0.0` - **Final version with chunking**
+- `bcrdf-darwin-x64-v2.3.0` - **Final version with chunking**
 - `bcrdf-darwin-x64-chunked` - Version with chunking
 - `bcrdf-darwin-x64-chunked-fixed` - Fixed version
 
 #### **Linux**
-- `bcrdf-linux-x64-v2.0.0` - Final version
+- `bcrdf-linux-x64-v2.3.0` - Final version
 - `bcrdf-linux-x64-fixed` - Fixed version
 
 ### 🚀 **Migration from v1.x**
@@ -86,7 +86,7 @@ backup:
 - **Intuitive CLI interface**
 - **Automatic retention management**
 - **Real-time progress bars**
-- **Selective file restoration**
+- **Complete backup restoration**
 
 ### 🔧 **Base Features**
 - **Interactive and manual configuration**
@@ -100,20 +100,20 @@ backup:
 ## Release Notes
 
 ### 🔄 **Compatibility**
-- **v2.0.0** : Compatible with v1.x backups
+- **v2.3.0** : Compatible with v1.x backups
 - **Migration** : Automatic, no action required
 - **Configuration** : Optional parameter addition
 
 ### 🛠️ **Installation**
 ```bash
 # Download latest version
-wget https://github.com/your-repo/bcrdf/releases/download/v2.0.0/bcrdf-darwin-x64-v2.0.0
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
 
 # Make executable
-chmod +x bcrdf-darwin-x64-v2.0.0
+chmod +x bcrdf-darwin-x64-v2.3.0
 
 # Test
-./bcrdf-darwin-x64-v2.0.0 init config.yaml --test
+./bcrdf-darwin-x64-v2.3.0 init config.yaml --test
 ```
 
 ### 📚 **Documentation**
@@ -123,6 +123,6 @@ chmod +x bcrdf-darwin-x64-v2.0.0
 - **Troubleshooting** : Complete guide
 
 ### 🐛 **Known Fixes**
-- **v2.0.0** : Fixed restoration paths
-- **v2.0.0** : Improved error handling
-- **v2.0.0** : Optimized memory for large files 
+- **v2.3.0** : Fixed restoration paths
+- **v2.3.0** : Improved error handling
+- **v2.3.0** : Optimized memory for large files 

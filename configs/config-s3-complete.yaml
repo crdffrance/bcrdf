@@ -1,0 +1,92 @@
+# Configuration BCRDF pour S3 (AWS, Scaleway, DigitalOcean, etc.)
+# Copiez ce fichier et modifiez selon votre fournisseur S3
+
+storage:
+  type: "s3"
+  
+  # === CONFIGURATION S3 ===
+  bucket: "votre-bucket-bcrdf"
+  
+  # === FOURNISSEURS S3 ===
+  # AWS S3
+  region: "us-east-1"
+  endpoint: "https://s3.us-east-1.amazonaws.com"
+  
+  # Scaleway S3
+  # region: "fr-par"
+  # endpoint: "https://s3.fr-par.scw.cloud"
+  
+  # DigitalOcean Spaces
+  # region: "nyc3"
+  # endpoint: "https://nyc3.digitaloceanspaces.com"
+  
+  # MinIO (local)
+  # region: "us-east-1"
+  # endpoint: "http://localhost:9000"
+  
+  # === CRÉDENTIALS ===
+  access_key: "VOTRE_ACCESS_KEY"
+  secret_key: "VOTRE_SECRET_KEY"
+  
+  # === PARAMÈTRES AVANCÉS S3 (optionnels) ===
+  # force_path_style: false    # Pour MinIO ou compatibles
+  # disable_ssl: false         # Pour HTTP local
+  # max_retries: 3             # Tentatives de retry
+
+backup:
+  # === CHIFFREMENT ===
+  # Générez une clé sécurisée avec: ./scripts/generate-key.sh
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"  # aes-256-gcm, xchacha20-poly1305
+  
+  # === COMPRESSION ===
+  compression_level: 1  # 1-9 (1=rapide, 9=maximum)
+  
+  # === PERFORMANCE ===
+  max_workers: 16        # Nombre de workers parallèles (2-32)
+  buffer_size: "32MB"    # Taille du buffer de lecture
+  batch_size: 25         # Nombre de fichiers par batch
+  batch_size_limit: "8MB" # Limite de taille par batch
+  
+  # === CHUNKING POUR GROS FICHIERS ===
+  chunk_size: "32MB"     # Taille des chunks
+  memory_limit: "256MB"  # Limite mémoire pour gros fichiers
+  chunk_size_large: "25MB" # Taille des chunks pour gros fichiers
+  large_file_threshold: "100MB"      # Seuil pour gros fichiers
+  ultra_large_threshold: "1GB"       # Seuil pour ultra-gros fichiers (chunking)
+  
+  # === RÉSEAU ===
+  network_timeout: 120   # Timeout en secondes
+  retry_attempts: 5      # Nombre de tentatives
+  retry_delay: 2         # Délai entre tentatives (secondes)
+  
+  # === CHECKSUM ET VALIDATION ===
+  checksum_mode: "fast"  # fast (5x plus rapide), full (maximum sécurité), metadata (10x plus rapide)
+  
+  # === OPTIMISATIONS ===
+  sort_by_size: true     # Traiter les petits fichiers en premier
+  
+  # === FICHIERS À IGNORER ===
+  skip_patterns:
+    - "*.tmp"
+    - "*.cache"
+    - "*.log"
+    - "*.temp"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.zip"           # Fichiers déjà compressés
+    - "*.tar.gz"
+    - "*.rar"
+    - "*.7z"
+    - "*.iso"           # Images disque
+    - "*.vmdk"
+    - "*.vdi"
+
+retention:
+  days: 30               # Garder les sauvegardes pendant 30 jours
+  max_backups: 10        # Maximum 10 sauvegardes
+
+# === LOGGING (optionnel) ===
+# logging:
+#   level: "info"        # debug, info, warn, error
+#   file: "bcrdf.log"    # Fichier de log (optionnel)

@@ -1,5 +1,6 @@
 # Binaries
 bcrdf
+bcrdf-*
 *.exe
 *.exe~
 *.dll
@@ -62,4 +63,13 @@ coverage.html
 # Backup files
 *.bak
 *.backup
-*.tmp 
+*.tmp
+
+# Development binaries
+bcrdf-darwin-x64-*
+bcrdf-linux-x64-*
+bcrdf-windows-x64-*
+
+# Temporary files
+verify-*.sh
+test-*.sh 

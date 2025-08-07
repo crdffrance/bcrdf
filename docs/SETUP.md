@@ -1,25 +1,25 @@
-# Guide de Configuration BCRDF
+# BCRDF Setup Guide
 
-## Configuration S3
+## S3 Configuration
 
-BCRDF utilise AWS S3 pour stocker les sauvegardes. Voici comment configurer votre environnement :
+BCRDF uses AWS S3 to store backups. Here's how to configure your environment:
 
-### 1. Créer un Bucket S3
+### 1. Create S3 Bucket
 
-1. Connectez-vous à la [Console AWS](https://console.aws.amazon.com/)
-2. Allez dans le service S3
-3. Cliquez sur "Create bucket"
-4. Choisissez un nom unique pour votre bucket (ex: `bcrdf-backups`)
-5. Sélectionnez votre région préférée
-6. Configurez les options de sécurité selon vos besoins
-7. Cliquez sur "Create bucket"
+1. Sign in to [AWS Console](https://console.aws.amazon.com/)
+2. Go to S3 service
+3. Click "Create bucket"
+4. Choose a unique name for your bucket (e.g., `bcrdf-backups`)
+5. Select your preferred region
+6. Configure security options according to your needs
+7. Click "Create bucket"
 
-### 2. Créer un Utilisateur IAM
+### 2. Create IAM User
 
-1. Allez dans le service IAM
-2. Cliquez sur "Users" puis "Create user"
-3. Donnez un nom à l'utilisateur (ex: `bcrdf-backup-user`)
-4. Attachez la politique suivante :
+1. Go to IAM service
+2. Click "Users" then "Create user"
+3. Give a name to the user (e.g., `bcrdf-backup-user`)
+4. Attach the following policy:
 
 ```json
 {
@@ -42,131 +42,147 @@ BCRDF utilise AWS S3 pour stocker les sauvegardes. Voici comment configurer votr
 }
 ```
 
-### 3. Générer les Clés d'Accès
+### 3. Generate Access Keys
 
-1. Sélectionnez l'utilisateur créé
-2. Allez dans l'onglet "Security credentials"
-3. Cliquez sur "Create access key"
-4. Choisissez "Application running outside AWS"
-5. Copiez l'Access Key ID et la Secret Access Key
+1. Select the created user
+2. Go to "Security credentials" tab
+3. Click "Create access key"
+4. Choose "Application running outside AWS"
+5. Copy the Access Key ID and Secret Access Key
 
-### 4. Configurer BCRDF
+### 4. Configure BCRDF
 
-1. Copiez le fichier de configuration :
+1. Copy the configuration file:
 ```bash
-cp configs/config.yaml config.yaml
+cp configs/config-s3-complete.yaml config.yaml
 ```
 
-2. Modifiez `config.yaml` avec vos paramètres :
+2. Edit `config.yaml` with your parameters:
 ```yaml
 storage:
   type: "s3"
-  bucket: "bcrdf-backups"  # Votre nom de bucket
-  region: "us-east-1"      # Votre région
+  bucket: "bcrdf-backups"  # Your bucket name
+  region: "us-east-1"      # Your region
   endpoint: "https://s3.us-east-1.amazonaws.com"
-  access_key: "AKIA..."    # Votre Access Key ID
-  secret_key: "..."        # Votre Secret Access Key
+  access_key: "AKIA..."    # Your Access Key ID
+  secret_key: "..."        # Your Secret Access Key
 
 backup:
-  source_path: "/path/to/backup"
   encryption_key: "your-very-secure-encryption-key-32-chars"
   compression_level: 3
   max_workers: 10
 ```
 
-### 5. Variables d'Environnement (Alternative)
+### 5. Environment Variables (Alternative)
 
-Au lieu de mettre les clés dans le fichier de configuration, vous pouvez utiliser des variables d'environnement :
+Instead of putting keys in the configuration file, you can use environment variables:
 
 ```bash
 export AWS_ACCESS_KEY_ID="AKIA..."
 export AWS_SECRET_ACCESS_KEY="..."
 ```
 
-Dans ce cas, laissez `access_key` et `secret_key` vides dans `config.yaml`.
+In this case, leave `access_key` and `secret_key` empty in `config.yaml`.
 
-## Test de Configuration
+## Configuration Test
 
-Après avoir configuré S3, testez la connexion :
+After configuring S3, test the connection:
 
 ```bash
-# Compiler l'application
+# Build the application
 make build
 
-# Tester une sauvegarde
+# Test a backup
 ./bcrdf backup --source ./test-data --name "test-backup"
 ```
 
-## Sécurité
+## Security
 
-### Clé de Chiffrement
+### Encryption Key Generation
 
-La clé de chiffrement doit être :
-- **Longue** : Au moins 32 caractères
-- **Complexe** : Mélange de lettres, chiffres et symboles
-- **Secrète** : Ne la partagez jamais
+Generate a secure encryption key:
 
-Exemple de génération :
 ```bash
-# Générer une clé aléatoire
-openssl rand -base64 32
+# Generate AES-256-GCM key
+./scripts/generate-key.sh
+
+# Or manually create a 32-byte key
+openssl rand -hex 32
 ```
 
-### Permissions S3
+### Best Practices
 
-Le bucket S3 doit être configuré avec :
-- **Chiffrement** : SSE-S3 ou SSE-KMS
-- **Versioning** : Activé pour la récupération
-- **Lifecycle** : Politique de rétention (optionnel)
+1. **Use IAM roles** instead of access keys when possible
+2. **Rotate access keys** regularly
+3. **Use bucket policies** to restrict access
+4. **Enable versioning** on your S3 bucket
+5. **Set up monitoring** with CloudTrail
 
-## Dépannage
+## WebDAV Configuration
 
-### Erreur de Connexion S3
+### Nextcloud Setup
 
-```
-Error: NoCredentialProviders: no valid providers in chain
-```
+1. Create a Nextcloud account
+2. Generate an app password
+3. Use the WebDAV URL: `https://your-nextcloud.com/remote.php/dav/files/username/`
 
-**Solution :** Vérifiez vos clés AWS dans `config.yaml` ou les variables d'environnement.
+### Configuration Example
 
-### Erreur de Bucket
-
-```
-Error: NoSuchBucket: The specified bucket does not exist
-```
-
-**Solution :** Vérifiez le nom du bucket dans `config.yaml`.
-
-### Erreur de Permissions
-
-```
-Error: AccessDenied: Access Denied
-```
-
-**Solution :** Vérifiez les permissions IAM de l'utilisateur.
-
-### Erreur de Région
-
-```
-Error: PermanentRedirect: The bucket you are attempting to access must be addressed using the specified endpoint
-```
-
-**Solution :** Vérifiez la région dans `config.yaml`.
-
-## Support des Endpoints Personnalisés
-
-BCRDF supporte les endpoints S3 personnalisés pour :
-- **MinIO** : `http://localhost:9000`
-- **Ceph** : `http://ceph-cluster:7480`
-- **Backblaze B2** : `https://s3.us-west-002.backblazeb2.com`
-
-Exemple pour MinIO :
 ```yaml
 storage:
-  type: "s3"
-  bucket: "bcrdf-backups"
-  region: "us-east-1"
-  endpoint: "http://localhost:9000"
-  access_key: "minioadmin"
-  secret_key: "minioadmin"
-``` 
+  type: "webdav"
+  endpoint: "https://your-nextcloud.com/remote.php/dav/files/username/"
+  username: "your-username"
+  password: "your-app-password"
+```
+
+## Testing
+
+### Connectivity Test
+
+```bash
+# Test S3 configuration
+./bcrdf init config.yaml --test
+
+# Test WebDAV configuration
+./bcrdf init config-webdav.yaml --test
+```
+
+### Complete Test
+
+```bash
+# Create test data
+mkdir -p /tmp/test-data
+echo "test content" > /tmp/test-data/test.txt
+
+# Perform backup
+./bcrdf backup -n "test-backup" -s "/tmp/test-data" --config config.yaml
+
+# List backups
+./bcrdf list --config config.yaml
+
+# Restore backup
+./bcrdf restore -b "backup-id" -d "/tmp/restore" --config config.yaml
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### S3 Connectivity
+- Check your access keys
+- Verify bucket permissions
+- Ensure region is correct
+- Check network connectivity
+
+#### WebDAV Connectivity
+- Verify username/password
+- Check WebDAV URL format
+- Ensure SSL certificate is valid
+- Test with curl: `curl -u username:password -X PROPFIND https://your-webdav-url/`
+
+#### Performance Issues
+- Increase `max_workers` for better parallelism
+- Adjust `buffer_size` based on your system
+- Use `compression_level: 1` for faster backups
+- Consider using `checksum_mode: "fast"` for large datasets 

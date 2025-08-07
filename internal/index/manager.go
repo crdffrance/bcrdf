@@ -62,12 +62,12 @@ func (m *Manager) CreateIndexWithMode(sourcePath, backupID, checksumMode string,
 	if verbose {
 		utils.Info("Index created with %d files, total size: %d bytes",
 			index.TotalFiles, index.TotalSize)
-		
+
 		// Show cache statistics
 		stats := m.checksumCache.GetStats()
 		if stats.Hits > 0 || stats.Misses > 0 {
 			hitRate := float64(stats.Hits) / float64(stats.Hits+stats.Misses) * 100
-			utils.Info("Cache performance: %d hits, %d misses (%.1f%% hit rate)", 
+			utils.Info("Cache performance: %d hits, %d misses (%.1f%% hit rate)",
 				stats.Hits, stats.Misses, hitRate)
 		}
 	} else {
@@ -294,9 +294,9 @@ func shouldSkipFile(path string, info os.FileInfo) bool {
 		}
 	}
 
-	// Ignorer les répertoires système
+	// Ignorer les répertoires système (sauf /tmp pour les tests)
 	systemDirs := []string{
-		"/proc", "/sys", "/dev", "/tmp", "/var/tmp",
+		"/proc", "/sys", "/dev", "/var/tmp",
 	}
 
 	for _, dir := range systemDirs {
@@ -429,9 +429,6 @@ func (m *Manager) initializeIndex(backupID, sourcePath string) *BackupIndex {
 // countFiles counts the total number of files to process
 func (m *Manager) countFiles(sourcePath, checksumMode string, verbose bool) (int64, error) {
 	var fileCount int64
-	if verbose {
-		return fileCount, nil // Skip counting in verbose mode
-	}
 
 	// Load configuration for skip patterns
 	if m.config == nil {
@@ -497,7 +494,14 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 		}
 
 		if m.shouldSkipFileWithConfig(path, info) {
+			if verbose {
+				utils.Debug("Skipping file: %s", path)
+			}
 			return nil
+		}
+
+		if verbose {
+			utils.Debug("Processing file: %s", path)
 		}
 
 		entry, err := NewFileEntryWithModeAndCache(path, info, checksumMode, m.checksumCache)

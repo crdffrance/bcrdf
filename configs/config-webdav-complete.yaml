@@ -1,0 +1,93 @@
+# Configuration BCRDF pour WebDAV (Nextcloud, ownCloud, etc.)
+# Copiez ce fichier et modifiez selon votre serveur WebDAV
+
+storage:
+  type: "webdav"
+  
+  # === CONFIGURATION WEBDAV ===
+  
+  # === FOURNISSEURS WEBDAV ===
+  # Nextcloud
+  endpoint: "https://votre-nextcloud.com/remote.php/dav/files/votre-utilisateur/"
+  
+  # ownCloud
+  # endpoint: "https://votre-owncloud.com/remote.php/webdav/"
+  
+  # Box.com (WebDAV)
+  # endpoint: "https://dav.box.com/dav/"
+  
+  # pCloud (WebDAV)
+  # endpoint: "https://webdav.pcloud.com/"
+  
+  # 4shared (WebDAV)
+  # endpoint: "https://4shared.com/dav/"
+  
+  # Serveur WebDAV générique
+  # endpoint: "https://votre-serveur-webdav.com/dav/"
+  
+  # === CRÉDENTIALS ===
+  username: "votre-utilisateur"
+  password: "votre-mot-de-passe"
+  
+  # === PARAMÈTRES AVANCÉS WEBDAV (optionnels) ===
+  # timeout: 30              # Timeout en secondes
+  # max_retries: 3           # Tentatives de retry
+  # verify_ssl: true         # Vérification SSL
+  # insecure_skip_verify: false  # Ignorer les erreurs SSL
+
+backup:
+  # === CHIFFREMENT ===
+  # Générez une clé sécurisée avec: ./scripts/generate-key.sh
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"  # aes-256-gcm, xchacha20-poly1305
+  
+  # === COMPRESSION ===
+  compression_level: 1  # 1-9 (1=rapide, 9=maximum)
+  
+  # === PERFORMANCE (optimisé pour WebDAV) ===
+  max_workers: 10        # Nombre de workers parallèles (réduit pour WebDAV)
+  buffer_size: "16MB"    # Taille du buffer de lecture
+  batch_size: 15         # Nombre de fichiers par batch
+  batch_size_limit: "4MB" # Limite de taille par batch
+  
+  # === CHUNKING POUR GROS FICHIERS (optimisé pour WebDAV) ===
+  chunk_size: "16MB"     # Taille des chunks (réduit pour WebDAV)
+  memory_limit: "128MB"  # Limite mémoire pour gros fichiers
+  chunk_size_large: "10MB" # Taille des chunks pour gros fichiers
+  large_file_threshold: "50MB"       # Seuil pour gros fichiers
+  ultra_large_threshold: "500MB"     # Seuil pour ultra-gros fichiers (chunking)
+  
+  # === RÉSEAU (optimisé pour WebDAV) ===
+  network_timeout: 60    # Timeout en secondes (réduit pour WebDAV)
+  retry_attempts: 3      # Nombre de tentatives
+  retry_delay: 5         # Délai entre tentatives (secondes)
+  
+  # === CHECKSUM ET VALIDATION ===
+  checksum_mode: "fast"  # fast (5x plus rapide), full (maximum sécurité), metadata (10x plus rapide)
+  
+  # === OPTIMISATIONS ===
+  sort_by_size: true     # Traiter les petits fichiers en premier
+  
+  # === FICHIERS À IGNORER (spécifiques WebDAV) ===
+  skip_patterns:
+    - "*.tmp"
+    - "*.cache"
+    - "*.log"
+    - "*.temp"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - ".nextcloud"       # Fichiers Nextcloud
+    - ".owncloud"        # Fichiers ownCloud
+    - ".sync"            # Fichiers de synchronisation
+    - ".conflict"        # Fichiers en conflit
+    - "*.part"           # Fichiers partiels
+    - "*.upload"         # Fichiers en cours d'upload
+
+retention:
+  days: 30               # Garder les sauvegardes pendant 30 jours
+  max_backups: 10        # Maximum 10 sauvegardes
+
+# === LOGGING (optionnel) ===
+# logging:
+#   level: "info"        # debug, info, warn, error
+#   file: "bcrdf.log"    # Fichier de log (optionnel)

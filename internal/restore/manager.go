@@ -373,7 +373,7 @@ func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinatio
 		return fmt.Errorf("error decompressing: %w", err)
 	}
 
-	// Créer le chemin de destination
+	// Créer le chemin de destination (utiliser le chemin complet)
 	destPath := filepath.Join(destinationPath, file.Path)
 	destDir := filepath.Dir(destPath)
 

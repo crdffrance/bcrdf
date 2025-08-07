@@ -1,223 +1,128 @@
-# Releases et CI/CD BCRDF
+# BCRDF Releases
 
-## 🚀 Système de CI/CD
+## Version 2.0.0 - Automatic Chunking (2025-08-07)
 
-BCRDF utilise GitHub Actions pour automatiser la compilation, les tests et les releases sur toutes les architectures supportées.
+### 🎯 **Major New Features**
 
-### 📋 Workflows disponibles
+#### ✨ **Automatic Chunking**
+- **Intelligent chunking** for files > 1GB
+- **Optimized memory management** with configurable buffers
+- **Chunk-based restoration** for maximum reliability
+- **Optimal performance** with Scaleway S3
 
-#### 1. Build (`build.yml`)
-- **Déclencheurs** : Push sur main/master, Pull Requests, Releases
-- **Fonctionnalités** :
-  - Tests unitaires et linting
-  - Compilation multi-architectures
-  - Création automatique de releases
+#### 🔧 **Technical Improvements**
+- **Ultra-optimized configuration** for Scaleway S3
+- **Robust error handling** and automatic retry
+- **Advanced compression and encryption**
+- **Intelligent incremental backups**
 
-#### 2. Security & Quality (`security.yml`)
-- **Déclencheurs** : Push, PR, Schedule (hebdomadaire)
-- **Fonctionnalités** :
-  - Scan de sécurité avec gosec
-  - Vérification des dépendances
-  - Analyse de qualité du code
-  - Vérification des licences
+### 📊 **Performance Metrics**
 
-#### 3. Integration Tests (`integration.yml`)
-- **Déclencheurs** : Push, PR
-- **Fonctionnalités** :
-  - Tests d'intégration avec MinIO (S3-compatible)
-  - Vérification complète du workflow backup/restore
+#### **With Scaleway S3**
+- **Backup** : ~5MB/s (network + compression + encryption)
+- **Restore** : ~16MB/s (decompression + decryption)
+- **Chunking** : 25MB per chunk (optimized for S3)
+- **Memory** : Controlled usage with buffers
 
-#### 4. Release (`release.yml`)
-- **Déclencheurs** : Tags v*
-- **Fonctionnalités** :
-  - Compilation automatique pour toutes les architectures
-  - Création de release GitHub avec binaries
+### 🧪 **Validated Tests**
+- ✅ **Files > 1GB** with automatic chunking
+- ✅ **Incremental backups** functional
+- ✅ **Complete restoration** and reliable
+- ✅ **Robust error handling**
 
-## 🏗️ Architectures supportées
+### 🔧 **Recommended Configuration**
 
-### Linux
-- **x64** : `bcrdf-linux-x64.tar.gz`
-- **ARM64** : `bcrdf-linux-arm64.tar.gz`
-- **x32** : `bcrdf-linux-x32.tar.gz`
+```yaml
+backup:
+  ultra_large_threshold: "1GB"     # Chunking threshold
+  chunk_size: "32MB"               # Chunk size
+  large_file_threshold: "100MB"    # Large file threshold
+  buffer_size: "32MB"              # Processing buffer
+  max_workers: 16                  # Number of workers
+```
 
-### Windows
-- **x64** : `bcrdf-windows-x64.zip`
-- **ARM64** : `bcrdf-windows-arm64.zip`
-- **x32** : `bcrdf-windows-x32.zip`
+### 📦 **Release Files**
 
-### macOS
-- **x64** : `bcrdf-darwin-x64.tar.gz`
-- **ARM64** : `bcrdf-darwin-arm64.tar.gz`
+#### **Darwin (macOS)**
+- `bcrdf-darwin-x64-v2.0.0` - **Final version with chunking**
+- `bcrdf-darwin-x64-chunked` - Version with chunking
+- `bcrdf-darwin-x64-chunked-fixed` - Fixed version
 
-## 📦 Compilation locale
+#### **Linux**
+- `bcrdf-linux-x64-v2.0.0` - Final version
+- `bcrdf-linux-x64-fixed` - Fixed version
 
-### Compilation multi-architectures
+### 🚀 **Migration from v1.x**
+
+#### **Configuration Changes**
+```yaml
+# New parameter for chunking
+backup:
+  ultra_large_threshold: "1GB"  # New
+  chunk_size: "32MB"            # New
+```
+
+#### **Updated Commands**
 ```bash
-# Compilation pour toutes les architectures
-make build-all
+# Initialize with test
+./bcrdf init config.yaml --test
 
-# Ou directement
-./scripts/build-all.sh
+# Backup with automatic chunking
+./bcrdf backup -n "backup" -s "/path" --config config.yaml
+
+# Restore with chunk support
+./bcrdf restore -b "backup-id" -d "/restore" --config config.yaml
 ```
 
-### Compilation pour release
+---
+
+## Version 1.0.0 - Initial Release (2024-12-06)
+
+### ✨ **Base Features**
+- **Incremental backups** with intelligent indexing
+- **AES-256-GCM encryption** end-to-end
+- **Configurable GZIP compression**
+- **Multi-storage support** : S3 and WebDAV
+- **Intuitive CLI interface**
+- **Automatic retention management**
+- **Real-time progress bars**
+- **Selective file restoration**
+
+### 🔧 **Base Features**
+- **Interactive and manual configuration**
+- **Integrated connectivity tests**
+- **Robust error handling**
+- **Detailed logs** with verbose mode
+- **Complete documentation**
+
+---
+
+## Release Notes
+
+### 🔄 **Compatibility**
+- **v2.0.0** : Compatible with v1.x backups
+- **Migration** : Automatic, no action required
+- **Configuration** : Optional parameter addition
+
+### 🛠️ **Installation**
 ```bash
-# Compilation avec version spécifique
-make build-release TAG=v1.0.0
+# Download latest version
+wget https://github.com/your-repo/bcrdf/releases/download/v2.0.0/bcrdf-darwin-x64-v2.0.0
 
-# Ou directement
-./scripts/build-all.sh v1.0.0
+# Make executable
+chmod +x bcrdf-darwin-x64-v2.0.0
+
+# Test
+./bcrdf-darwin-x64-v2.0.0 init config.yaml --test
 ```
 
-### Compilation manuelle
-```bash
-# Linux x64
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bcrdf-linux-x64 cmd/bcrdf/main.go
+### 📚 **Documentation**
+- **README** : Complete updated documentation
+- **Configuration** : Examples for Scaleway S3
+- **Tests** : Validation scripts
+- **Troubleshooting** : Complete guide
 
-# Windows x64
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bcrdf-windows-x64.exe cmd/bcrdf/main.go
-
-# macOS ARM64
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o bcrdf-darwin-arm64 cmd/bcrdf/main.go
-```
-
-## 🏷️ Création de releases
-
-### Release automatique (recommandé)
-```bash
-# 1. Créer un tag
-git tag v1.0.0
-
-# 2. Pousser le tag
-git push origin v1.0.0
-
-# 3. GitHub Actions compile et crée automatiquement la release
-```
-
-### Release manuelle
-```bash
-# 1. Compiler pour toutes les architectures
-make build-release TAG=v1.0.0
-
-# 2. Créer une release GitHub manuellement
-# 3. Uploader les fichiers depuis dist/
-```
-
-## 🔧 Configuration des workflows
-
-### Variables d'environnement
-Les workflows utilisent les variables d'environnement suivantes :
-- `GO_VERSION` : Version de Go (défaut: 1.21)
-- `CGO_ENABLED` : Désactivé pour cross-compilation
-
-### Cache
-- **Go modules** : Cache des dépendances
-- **Build cache** : Cache de compilation
-- **Dépendances** : Cache des outils (golangci-lint, etc.)
-
-## 📊 Métriques de build
-
-### Temps de compilation (approximatif)
-- **Linux x64** : ~30s
-- **Windows x64** : ~35s
-- **macOS ARM64** : ~40s
-- **Total multi-arch** : ~5-10 minutes
-
-### Taille des binaires (approximative)
-- **Linux x64** : ~10MB
-- **Windows x64** : ~10MB
-- **macOS ARM64** : ~9MB
-
-## 🧪 Tests automatisés
-
-### Tests unitaires
-```bash
-# Exécution locale
-make test
-
-# Avec couverture
-make test-coverage
-```
-
-### Tests d'intégration
-- **MinIO** : Serveur S3-compatible pour les tests
-- **Workflow complet** : Backup → List → Restore → Verify
-- **Multi-algorithmes** : Tests AES-256-GCM et XChaCha20-Poly1305
-
-### Tests de sécurité
-- **gosec** : Scan de vulnérabilités
-- **Dépendances** : Vérification des vulnérabilités connues
-- **Licences** : Vérification des headers de licence
-
-## 🔍 Monitoring des builds
-
-### Badges disponibles
-```markdown
-[![Build Status](https://github.com/username/bcrdf/workflows/Build/badge.svg)](https://github.com/username/bcrdf/actions)
-[![Security](https://github.com/username/bcrdf/workflows/Security%20&%20Quality/badge.svg)](https://github.com/username/bcrdf/actions)
-[![Integration Tests](https://github.com/username/bcrdf/workflows/Integration%20Tests/badge.svg)](https://github.com/username/bcrdf/actions)
-```
-
-### Artifacts générés
-- **Binaries** : Toutes les architectures
-- **Coverage** : Rapport de couverture HTML
-- **SARIF** : Rapports de sécurité
-
-## 🚨 Dépannage
-
-### Erreurs courantes
-
-#### Build échoue
-```bash
-# Vérifier les dépendances
-go mod tidy
-go mod download
-
-# Vérifier la syntaxe
-make lint
-```
-
-#### Cross-compilation échoue
-```bash
-# Vérifier les variables d'environnement
-echo $GOOS $GOARCH $CGO_ENABLED
-
-# Recompiler avec CGO désactivé
-CGO_ENABLED=0 go build ...
-```
-
-#### Tests d'intégration échouent
-```bash
-# Vérifier MinIO
-docker ps | grep minio
-
-# Redémarrer MinIO
-docker restart minio
-```
-
-### Logs et debugging
-- **Actions GitHub** : Logs détaillés dans chaque workflow
-- **Artifacts** : Téléchargement des binaires et rapports
-- **Notifications** : Email/Slack pour les échecs
-
-## 📈 Améliorations futures
-
-### Fonctionnalités planifiées
-- [ ] **Signing** : Signature des binaires avec GPG
-- [ ] **Docker** : Images Docker multi-architectures
-- [ ] **Homebrew** : Formula pour macOS
-- [ ] **Snap** : Package Snap pour Linux
-- [ ] **Chocolatey** : Package pour Windows
-
-### Optimisations
-- [ ] **Cache** : Amélioration du cache de compilation
-- [ ] **Parallélisation** : Builds parallèles par architecture
-- [ ] **Compression** : Optimisation de la taille des binaires
-- [ ] **CDN** : Distribution via CDN pour les downloads
-
-## 📚 Ressources
-
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [Go Cross Compilation](https://golang.org/doc/install/source#environment)
-- [MinIO Documentation](https://docs.min.io/)
-- [gosec Security Scanner](https://github.com/securecodewarrior/gosec) 
+### 🐛 **Known Fixes**
+- **v2.0.0** : Fixed restoration paths
+- **v2.0.0** : Improved error handling
+- **v2.0.0** : Optimized memory for large files 

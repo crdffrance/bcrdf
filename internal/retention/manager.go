@@ -214,6 +214,9 @@ func (m *Manager) deleteBackups(backups []BackupInfo, verbose bool) error {
 		}
 
 		// Supprimer les fichiers de données
+		if verbose {
+			utils.Info("Deleting %d files for backup %s", len(backupIndex.Files), backup.ID)
+		}
 		if err := m.deleteBackupFiles(backupIndex); err != nil {
 			errorMsg := fmt.Sprintf("error deleting files for %s: %v", backup.ID, err)
 			errors = append(errors, errorMsg)
@@ -222,8 +225,14 @@ func (m *Manager) deleteBackups(backups []BackupInfo, verbose bool) error {
 			}
 			continue
 		}
+		if verbose {
+			utils.Info("✅ All files deleted for backup %s", backup.ID)
+		}
 
 		// Supprimer l'index
+		if verbose {
+			utils.Info("Deleting index for backup %s", backup.ID)
+		}
 		if err := m.deleteBackupIndex(backup.ID); err != nil {
 			errorMsg := fmt.Sprintf("error deleting index for %s: %v", backup.ID, err)
 			errors = append(errors, errorMsg)
@@ -231,6 +240,9 @@ func (m *Manager) deleteBackups(backups []BackupInfo, verbose bool) error {
 				utils.Warn("%s", errorMsg)
 			}
 			continue
+		}
+		if verbose {
+			utils.Info("✅ Index deleted for backup %s", backup.ID)
 		}
 
 		deletedCount++
@@ -270,7 +282,7 @@ func (m *Manager) deleteBackupFiles(backupIndex *index.BackupIndex) error {
 			if err := m.storageClient.DeleteObject(file.StorageKey); err != nil {
 				errors = append(errors, fmt.Sprintf("failed to delete %s: %v", file.StorageKey, err))
 			} else {
-				utils.Debug("File deleted: %s", file.StorageKey)
+				utils.Debug("File deleted: %s (original: %s)", file.StorageKey, file.Path)
 			}
 		}
 	}

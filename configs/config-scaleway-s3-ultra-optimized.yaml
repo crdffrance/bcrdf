@@ -1,0 +1,58 @@
+storage:
+  type: "s3"
+  bucket: "bcrdf"
+  region: "fr-par"
+  endpoint: "https://s3.fr-par.scw.cloud"
+  access_key: "SCW1M0G9HGMXR54XA46M"
+  secret_key: "c0daf30e-3c70-4894-ab1b-c0c7d041d267"
+  username: ""
+  password: ""
+
+backup:
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"
+  compression_level: 1
+  checksum_mode: "fast"
+  max_workers: 16
+  buffer_size: "32MB"
+  batch_size: 25
+  batch_size_limit: "8MB"
+  chunk_size: "32MB"
+  memory_limit: "256MB"
+  network_timeout: 120
+  retry_attempts: 5
+  retry_delay: 2
+  sort_by_size: true
+  chunk_size_large: "25MB"
+  large_file_threshold: "100MB"      # Seuil pour gros fichiers
+  ultra_large_threshold: "1GB"        # Seuil pour ultra-gros fichiers (chunking)
+  skip_patterns:
+    - "*.tmp"
+    - "*.log"
+    - "*.cache"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.bak"
+    - "*.backup"
+    - "*.old"
+    - "*.tmp"
+    - "*.temp"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+    - ".git/"
+    - ".svn/"
+    - ".hg/"
+    - "node_modules/"
+    - ".npm/"
+    - ".cache/"
+    - "*.tar.gz"
+    - "*.zip"
+    - "*.rar"
+    - "*.7z"
+    - "*.bz2"
+    - "*.xz"
+
+retention:
+  days: 30
+  max_backups: 10 

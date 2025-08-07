@@ -2,23 +2,58 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v2.0.0-orange.svg)](docs/RELEASES.md)
+[![Release](https://img.shields.io/badge/Release-v2.3.0-orange.svg)](docs/RELEASES.md)
 
 **BCRDF** is a modern and sophisticated backup system written in Go, designed to provide secure incremental backups with multi-storage support (S3 and WebDAV) and **automatic chunking** for large files.
 
-## 🚀 **New Features v2.0.0**
+## 🚀 **Quick Start Guide**
 
-### ✨ **Automatic Chunking**
-- **Intelligent chunking** for files > 1GB
-- **Optimized memory management** with configurable buffers
-- **Chunk-based restoration** for maximum reliability
-- **Optimal performance** with Scaleway S3
+### **1. Installation**
+```bash
+# Download the latest release
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
+chmod +x bcrdf-darwin-x64-v2.3.0
 
-### 🔧 **Technical Improvements**
-- **Ultra-optimized configuration** for Scaleway S3
-- **Robust error handling** and automatic retry
-- **Advanced compression and encryption**
-- **Intelligent incremental backups**
+# Or build from source
+git clone https://github.com/your-repo/bcrdf.git
+cd bcrdf
+go build -o bcrdf cmd/bcrdf/main.go
+```
+
+### **2. Generate Encryption Key**
+```bash
+# Generate a secure encryption key
+./scripts/generate-key.sh
+# Copy the generated key for your configuration
+```
+
+### **3. Create Configuration**
+```bash
+# Create a configuration file
+./bcrdf init config.yaml --interactive
+
+# Or use an example configuration
+cp configs/config-s3-complete.yaml config.yaml
+# Edit config.yaml with your S3 credentials
+```
+
+### **4. Test Configuration**
+```bash
+# Test your configuration
+./bcrdf init config.yaml --test
+```
+
+### **5. First Backup**
+```bash
+# Create your first backup
+./bcrdf backup -n "my-first-backup" -s "/path/to/data" --config config.yaml
+
+# List your backups
+./bcrdf list --config config.yaml
+
+# Restore a backup
+./bcrdf restore -b "my-first-backup-20240807-143022" -d "/restore/path" --config config.yaml
+```
 
 ## 📋 **Main Features**
 
@@ -33,7 +68,6 @@
 - **Scaleway S3** (ultra-optimized configuration)
 - **DigitalOcean Spaces** and other S3-compatible services
 - **WebDAV** (Nextcloud, OwnCloud, Box, pCloud, 4shared)
-- **Local storage** support
 
 ### 📊 **Performance**
 - **Automatic chunking** (25MB per chunk, configurable)
@@ -46,15 +80,25 @@
 - **Automatic backup retention** (configurable policies)
 - **Data deduplication** through checksum-based indexing
 - **Fast indexing** with three checksum modes
-- **Selective restoration** (files or complete backups)
+- **Complete backup restoration**
 
 ## 🛠️ **Installation**
 
 ### **Prerequisites**
-- Go 1.21+
+- Go 1.21+ (for building from source)
 - Configured S3/WebDAV access
 
-### **Quick Installation**
+### **Binary Installation**
+```bash
+# Download for your platform
+wget https://github.com/your-repo/bcrdf/releases/download/v2.3.0/bcrdf-darwin-x64-v2.3.0
+chmod +x bcrdf-darwin-x64-v2.3.0
+
+# Test installation
+./bcrdf-darwin-x64-v2.3.0 version
+```
+
+### **Build from Source**
 ```bash
 # Clone the repository
 git clone https://github.com/your-repo/bcrdf.git
@@ -69,13 +113,13 @@ go build -o bcrdf cmd/bcrdf/main.go
 
 ## ⚙️ **Configuration**
 
-### **Scaleway S3 Configuration (Recommended)**
+### **S3 Configuration (Recommended)**
 ```yaml
 storage:
   type: "s3"
   bucket: "your-bucket"
-  region: "fr-par"
-  endpoint: "https://s3.fr-par.scw.cloud"
+  region: "us-east-1"
+  endpoint: "https://s3.us-east-1.amazonaws.com"
   access_key: "YOUR_ACCESS_KEY"
   secret_key: "YOUR_SECRET_KEY"
 
@@ -87,42 +131,65 @@ backup:
   max_workers: 16               # Parallelization
 ```
 
-### **Initialization**
-```bash
-# Initialize with connectivity test
-./bcrdf init configs/config-scaleway-s3-ultra-optimized.yaml --test
+### **WebDAV Configuration**
+```yaml
+storage:
+  type: "webdav"
+  endpoint: "https://your-nextcloud.com/remote.php/dav/files/username/"
+  username: "your-username"
+  password: "your-app-password"
 
-# Initialize without test
-./bcrdf init configs/config-scaleway-s3-ultra-optimized.yaml
+backup:
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"
+  max_workers: 10               # Reduced for WebDAV
+```
+
+### **Configuration Commands**
+```bash
+# Interactive configuration
+./bcrdf init config.yaml --interactive
+
+# Quick configuration
+./bcrdf init config.yaml
+
+# Test configuration
+./bcrdf init config.yaml --test
+
+# Show supported algorithms
+./bcrdf info
 ```
 
 ## 📖 **Usage**
 
-### **Backup**
+### **Backup Commands**
 ```bash
 # Complete backup
 ./bcrdf backup -n "my-backup" -s "/path/to/data" --config config.yaml
 
-# Backup with verbose
+# Backup with verbose output
 ./bcrdf backup -n "my-backup" -s "/path/to/data" --config config.yaml -v
 
 # Incremental backup (automatic)
 ./bcrdf backup -n "my-backup" -s "/path/to/data" --config config.yaml
 ```
 
-### **Restore**
+### **Restore Commands**
 ```bash
-# List backups
+# List available backups
 ./bcrdf list --config config.yaml
+
+# Show backup details
+./bcrdf list "backup-id" --config config.yaml
 
 # Restore complete backup
 ./bcrdf restore -b "backup-id" -d "/restore/path" --config config.yaml
 
-# Restore specific file
-./bcrdf restore-file -b "backup-id" -f "/path/file" -d "/destination" --config config.yaml
+# Restore with verbose output
+./bcrdf restore -b "backup-id" -d "/restore/path" --config config.yaml -v
 ```
 
-### **Management**
+### **Management Commands**
 ```bash
 # List backups
 ./bcrdf list --config config.yaml
@@ -131,7 +198,19 @@ backup:
 ./bcrdf delete -b "backup-id" --config config.yaml
 
 # Apply retention policy
-./bcrdf retention --config config.yaml
+./bcrdf retention --apply --config config.yaml
+
+# Show retention status
+./bcrdf retention --info --config config.yaml
+```
+
+### **Information Commands**
+```bash
+# Show version and features
+./bcrdf version
+
+# Show supported algorithms
+./bcrdf info
 ```
 
 ## 🔧 **Advanced Configuration**
@@ -168,7 +247,7 @@ backup:
   # checksum_mode: "metadata"      # metadata (10x faster, good security)
 ```
 
-### **Performance**
+### **Performance Settings**
 ```yaml
 backup:
   max_workers: 16                  # Parallel workers (2-32)
@@ -180,7 +259,7 @@ backup:
   retry_delay: 2                   # Retry delay (seconds)
 ```
 
-### **Retention**
+### **Retention Policy**
 ```yaml
 retention:
   days: 30                         # Maximum age (days)
@@ -221,8 +300,14 @@ dd if=/dev/urandom of=/tmp/test-data/large-file.bin bs=1M count=1024
 # Backup
 ./bcrdf backup -n "test" -s "/tmp/test-data" --config config.yaml
 
+# List backups
+./bcrdf list --config config.yaml
+
 # Restore
 ./bcrdf restore -b "test-backup-id" -d "/tmp/restore" --config config.yaml
+
+# Verify
+diff -r /tmp/test-data /tmp/restore/test-data
 ```
 
 ## 📁 **Project Structure**
@@ -276,6 +361,18 @@ aws s3 ls s3://your-bucket/
 - Use smaller `chunk_size`
 - Enable `compression_adaptive: true`
 
+#### **Configuration Issues**
+```bash
+# Show supported algorithms
+./bcrdf info
+
+# Test configuration
+./bcrdf init config.yaml --test
+
+# Interactive configuration
+./bcrdf init config.yaml --interactive
+```
+
 ## 📄 **License**
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
@@ -298,5 +395,5 @@ Contributions are welcome! Please:
 
 ---
 
-**BCRDF v2.0.0** - Backup Copy with Redundant Data Format
+**BCRDF v2.3.0** - Backup Copy with Redundant Data Format
 *Secure and performant backups with automatic chunking*

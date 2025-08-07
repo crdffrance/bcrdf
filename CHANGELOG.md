@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/en/).
 
-## [2.0.0] - 2025-08-07
+## [2.3.0] - 2025-08-07
 
 ### ✨ **Added**
 - **Automatic chunking** for files > 1GB
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/en/).
 - **Intuitive CLI interface**
 - **Automatic retention management**
 - **Real-time progress bars**
-- **Selective file restoration**
+- **Complete backup restoration**
 
 ### 🔧 **Base Features**
 - **Interactive and manual configuration**

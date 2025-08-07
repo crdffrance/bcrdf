@@ -97,7 +97,7 @@ func (m *Manager) getAllBackups(verbose bool) ([]BackupInfo, error) {
 		backupID := strings.TrimPrefix(obj.Key, "indexes/")
 		backupID = strings.TrimSuffix(backupID, ".json")
 
-		// Parser la date à partir de l'ID de sauvegarde
+		// Parser la date à partir de l'ID de sauvegarde (sans télécharger l'index)
 		timestamp, err := m.parseBackupTimestamp(backupID)
 		if err != nil {
 			if verbose {
@@ -106,24 +106,17 @@ func (m *Manager) getAllBackups(verbose bool) ([]BackupInfo, error) {
 			continue
 		}
 
-		// Charger l'index de sauvegarde
-		backupIndex, err := m.indexMgr.LoadIndex(backupID)
-		if err != nil {
-			if verbose {
-				utils.Warn("Cannot load backup index %s: %v", backupID, err)
-			}
-			continue
-		}
-
+		// Optimisation : Ne pas charger l'index complet pour la rétention
+		// On utilise seulement l'ID et le timestamp pour l'analyse
 		backups = append(backups, BackupInfo{
 			ID:        backupID,
 			Timestamp: timestamp,
-			Index:     backupIndex,
+			Index:     nil, // Index chargé seulement si nécessaire
 		})
 	}
 
 	if verbose {
-		utils.Info("Found %d backups for retention analysis", len(backups))
+		utils.Info("Found %d backups for retention analysis (without downloading indexes)", len(backups))
 	}
 
 	return backups, nil
@@ -202,8 +195,26 @@ func (m *Manager) deleteBackups(backups []BackupInfo, verbose bool) error {
 			utils.ProgressStep(fmt.Sprintf("Deleting backup: %s", backup.ID))
 		}
 
+		// Charger l'index seulement si nécessaire pour la suppression
+		var backupIndex *index.BackupIndex
+		if backup.Index == nil {
+			// Charger l'index seulement pour la suppression
+			loadedIndex, err := m.indexMgr.LoadIndex(backup.ID)
+			if err != nil {
+				errorMsg := fmt.Sprintf("error loading index for %s: %v", backup.ID, err)
+				errors = append(errors, errorMsg)
+				if verbose {
+					utils.Warn("%s", errorMsg)
+				}
+				continue
+			}
+			backupIndex = loadedIndex
+		} else {
+			backupIndex = backup.Index
+		}
+
 		// Supprimer les fichiers de données
-		if err := m.deleteBackupFiles(backup.Index); err != nil {
+		if err := m.deleteBackupFiles(backupIndex); err != nil {
 			errorMsg := fmt.Sprintf("error deleting files for %s: %v", backup.ID, err)
 			errors = append(errors, errorMsg)
 			if verbose {

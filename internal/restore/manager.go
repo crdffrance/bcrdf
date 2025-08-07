@@ -1,8 +1,11 @@
 package restore
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"bcrdf/internal/compression"
@@ -170,6 +173,26 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 		utils.ProgressStep(fmt.Sprintf("Restoring %d files to: %s", backupIndex.TotalFiles, destinationPath))
 	}
 
+	// Trier les fichiers par taille pour une meilleure UX (gros fichiers en dernier)
+	if m.config.Backup.SortBySize {
+		if verbose {
+			utils.Info("Sorting files by size (largest last)...")
+		} else {
+			utils.ProgressStep("Sorting files by size (largest last)")
+		}
+
+		// Créer une copie pour trier
+		files := make([]index.FileEntry, len(backupIndex.Files))
+		copy(files, backupIndex.Files)
+
+		// Trier par taille décroissante (gros fichiers en dernier)
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].Size > files[j].Size
+		})
+
+		backupIndex.Files = files
+	}
+
 	// Créer un pool de workers pour le traitement parallèle
 	semaphore := make(chan struct{}, m.config.Backup.MaxWorkers)
 	var wg sync.WaitGroup
@@ -238,8 +261,101 @@ func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationP
 
 	utils.Debug("Restoration du fichier: %s", file.Path)
 
-	// Charger les données depuis le stockage
+	// Vérifier si c'est un fichier chunké
 	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
+
+	// Essayer de charger les métadonnées pour vérifier si c'est chunké
+	metadataData, err := m.loadFromStorage(metadataKey)
+	if err == nil {
+		// C'est un fichier chunké, le restaurer en chunks
+		return m.restoreChunkedFile(file, backupID, destinationPath, metadataData)
+	}
+
+	// Fichier normal, traitement standard
+	return m.restoreStandardFile(file, backupID, destinationPath, storageKey)
+}
+
+// restoreChunkedFile restaure un fichier qui a été sauvegardé en chunks
+func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destinationPath string, metadataData []byte) error {
+	utils.Debug("Restoring chunked file: %s", file.Path)
+
+	// Parser les métadonnées
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(metadataData, &metadata); err != nil {
+		return fmt.Errorf("error parsing metadata: %w", err)
+	}
+
+	chunks, ok := metadata["chunks"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid metadata: chunks field not found")
+	}
+
+	storageKey, ok := metadata["storage_key"].(string)
+	if !ok {
+		return fmt.Errorf("invalid metadata: storage_key field not found")
+	}
+
+	// Créer le chemin de destination
+	destPath := filepath.Join(destinationPath, file.Path)
+	destDir := filepath.Dir(destPath)
+
+	// Créer le répertoire parent si nécessaire
+	if err := utils.EnsureDirectory(destDir); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	// Ouvrir le fichier de destination
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("error creating destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	// Restaurer chaque chunk
+	totalChunks := int(chunks)
+	var totalRestored int64
+
+	for chunkNum := 0; chunkNum < totalChunks; chunkNum++ {
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNum)
+
+		// Charger le chunk
+		encryptedChunk, err := m.loadFromStorage(chunkKey)
+		if err != nil {
+			return fmt.Errorf("error loading chunk %d: %w", chunkNum, err)
+		}
+
+		// Déchiffrer le chunk
+		chunkData, err := m.encryptor.Decrypt(encryptedChunk)
+		if err != nil {
+			return fmt.Errorf("error decrypting chunk %d: %w", chunkNum, err)
+		}
+
+		// Écrire le chunk dans le fichier
+		if _, err := destFile.Write(chunkData); err != nil {
+			return fmt.Errorf("error writing chunk %d: %w", chunkNum, err)
+		}
+
+		totalRestored += int64(len(chunkData))
+
+		// Afficher le progrès pour les gros fichiers
+		if file.Size > 100*1024*1024 { // > 100MB
+			progress := float64(chunkNum+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+				chunkNum+1, totalChunks, progress,
+				float64(totalRestored)/1024/1024, float64(file.Size)/1024/1024))
+		}
+	}
+
+	utils.Debug("Chunked file restored: %s (%d chunks, %.2f MB)",
+		filepath.Base(file.Path), totalChunks, float64(totalRestored)/1024/1024)
+
+	return nil
+}
+
+// restoreStandardFile restaure un fichier standard (non-chunké)
+func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinationPath, storageKey string) error {
+	// Charger les données depuis le stockage
 	encryptedData, err := m.loadFromStorage(storageKey)
 	if err != nil {
 		return fmt.Errorf("erreur lors du chargement depuis le stockage: %w", err)

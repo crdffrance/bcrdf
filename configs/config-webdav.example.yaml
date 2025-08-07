@@ -22,25 +22,26 @@ backup:
   # Encryption key (32 bytes in hexadecimal) - generate a new one!
   encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
-  compression_level: 3  # GZIP level (1-9)
-  max_workers: 32  # Number of parallel workers (optimized for performance)
+  compression_level: 1  # GZIP level (1-9) - Fastest to avoid compression issues
+  max_workers: 16  # Number of parallel workers (balanced for stability)
   checksum_mode: "fast"  # Options: "full" (slow, secure), "fast" (recommended), "metadata" (fastest)
-  buffer_size: "64MB"  # Buffer size for I/O operations
-  batch_size: 50  # Number of small files to batch together (performance optimization)
-  batch_size_limit: "10MB"  # Maximum size for batch uploads
+  buffer_size: "32MB"  # Buffer size for I/O operations (smaller for stability)
+  batch_size: 25  # Number of small files to batch together (balanced)
+  batch_size_limit: "8MB"  # Maximum size for batch uploads (smaller for stability)
   
   # Advanced performance optimizations
-  chunk_size: "64MB"  # Chunk size for streaming compression/decompression
-  memory_limit: "512MB"  # Memory limit for processing large files
-  network_timeout: 300  # Network timeout in seconds (5 minutes)
-  retry_attempts: 3  # Number of retry attempts for failed uploads
-  retry_delay: 5  # Delay between retries in seconds
+  chunk_size: "32MB"  # Chunk size for streaming compression/decompression (smaller for stability)
+  memory_limit: "256MB"  # Memory limit for processing large files (reduced for stability)
+  network_timeout: 120  # Network timeout in seconds (2 minutes)
+  retry_attempts: 5  # Number of retry attempts for failed uploads (increased for stability)
+  retry_delay: 2  # Delay between retries in seconds (faster retries)
   
   # Phase 1 performance optimizations
   cache_enabled: true  # Enable checksum caching for faster processing
   cache_max_size: 10000  # Maximum number of cached checksums
   cache_max_age: 60  # Cache entry max age in minutes
   compression_adaptive: true  # Enable adaptive compression based on file size
+  sort_by_size: true  # Sort files by size (smallest first) for better UX
   
   skip_patterns:  # Patterns to skip during backup (performance optimization)
     - "*.tmp"

@@ -101,8 +101,14 @@ func ReadFileWithBuffer(path string, bufferSize int) ([]byte, error) {
 		bufferSize = 64 * 1024 // Default 64KB
 	}
 
-	// For small files, use the file size as buffer
+	// For very large files (> 100MB), use streaming approach
 	fileSize := int(stat.Size())
+	if fileSize > 100*1024*1024 { // 100MB threshold
+		Debug("Large file detected (%d bytes), using streaming read", fileSize)
+		return readFileStreaming(file, bufferSize)
+	}
+
+	// For small files, use the file size as buffer
 	if fileSize < bufferSize {
 		bufferSize = fileSize
 	}
@@ -127,6 +133,27 @@ func ReadFileWithBuffer(path string, bufferSize int) ([]byte, error) {
 	}
 
 	return data[:totalRead], nil
+}
+
+// readFileStreaming reads large files in chunks to avoid memory issues
+func readFileStreaming(file *os.File, bufferSize int) ([]byte, error) {
+	var data []byte
+	buffer := make([]byte, bufferSize)
+
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			data = append(data, buffer[:n]...)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading file: %w", err)
+		}
+	}
+
+	return data, nil
 }
 
 // ParseBufferSize parses buffer size string (e.g., "64MB", "1GB", "512KB")

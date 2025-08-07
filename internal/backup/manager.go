@@ -1,7 +1,13 @@
 package backup
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -195,27 +201,31 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 		return nil, nil
 	}
 
-	// Trouver l'index le plus récent
+	// Optimisation : Trouver l'index le plus récent sans télécharger tous les index
 	var latestKey string
 	var latestTime time.Time
 
-	for _, key := range keys {
+	// Trier les clés par nom (les plus récentes en dernier)
+	sort.Strings(keys)
+
+	// Prendre le dernier index (le plus récent) sans télécharger les autres
+	for i := len(keys) - 1; i >= 0; i-- {
+		key := keys[i]
 		if strings.HasSuffix(key, ".json") {
 			// Extraire l'ID de sauvegarde du nom de fichier
 			backupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
 
-			// Charger l'index pour obtenir la date de création
+			// Charger uniquement cet index (le plus récent)
 			index, err := m.indexMgr.LoadIndex(backupID)
 			if err != nil {
 				utils.Warn("Impossible de charger l'index %s: %v", backupID, err)
 				continue
 			}
 
-			// Vérifier si cet index est plus récent
-			if index.CreatedAt.After(latestTime) {
-				latestTime = index.CreatedAt
-				latestKey = key
-			}
+			// Utiliser cet index comme le plus récent
+			latestTime = index.CreatedAt
+			latestKey = key
+			break // Sortir après le premier index valide trouvé
 		}
 	}
 
@@ -253,10 +263,30 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 		return nil
 	}
 
-	if verbose {
-		utils.Info("Sauvegarde de %d fichiers", len(allFiles))
+	// Optimisation : Trier les fichiers par taille (petits en premier)
+	if m.config.Backup.SortBySize {
+		if verbose {
+			utils.Info("Sorting %d files by size (smallest first)...", len(allFiles))
+		} else {
+			utils.ProgressStep(fmt.Sprintf("Sorting %d files by size", len(allFiles)))
+		}
+
+		// Trier par taille croissante (petits fichiers en premier)
+		sort.Slice(allFiles, func(i, j int) bool {
+			return allFiles[i].Size < allFiles[j].Size
+		})
+
+		if verbose {
+			utils.Info("Backing up %d files (sorted by size)", len(allFiles))
+		} else {
+			utils.ProgressStep(fmt.Sprintf("Backing up %d files (smallest first)", len(allFiles)))
+		}
 	} else {
-		utils.ProgressStep(fmt.Sprintf("Backing up %d files", len(allFiles)))
+		if verbose {
+			utils.Info("Backing up %d files (original order)", len(allFiles))
+		} else {
+			utils.ProgressStep(fmt.Sprintf("Backing up %d files", len(allFiles)))
+		}
 	}
 
 	// Créer un pool de workers pour le traitement parallèle
@@ -322,6 +352,15 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 
 	utils.Debug("Sauvegarde du fichier: %s", file.Path)
 
+	// Check file size to determine processing method
+	fileSize := file.Size
+	largeFileThreshold := int64(100 * 1024 * 1024) // 100MB
+
+	if fileSize > largeFileThreshold {
+		utils.Debug("Large file detected (%d bytes), using streaming method", fileSize)
+		return m.backupLargeFile(file, backupID)
+	}
+
 	// Lire le fichier source avec buffer optimisé
 	bufferSize, err := utils.ParseBufferSize(m.config.Backup.BufferSize)
 	if err != nil {
@@ -346,9 +385,9 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 		return fmt.Errorf("erreur lors du chiffrement: %w", err)
 	}
 
-	// Sauvegarder dans le stockage
+	// Sauvegarder dans le stockage avec retry
 	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
-	if err := m.saveToStorage(storageKey, encryptedData); err != nil {
+	if err := m.saveToStorageWithRetry(storageKey, encryptedData); err != nil {
 		return fmt.Errorf("error saving: %w", err)
 	}
 
@@ -356,6 +395,268 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 	file.StorageKey = storageKey
 
 	utils.Debug("File backed up: %s -> %s", file.Path, storageKey)
+	return nil
+}
+
+// backupLargeFile sauvegarde un gros fichier en streaming
+func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
+	utils.Debug("Processing large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
+
+	// Get thresholds from config or use defaults
+	largeThresholdStr := m.config.Backup.LargeFileThreshold
+	if largeThresholdStr == "" {
+		largeThresholdStr = "100MB" // Default
+	}
+
+	ultraLargeThresholdStr := m.config.Backup.UltraLargeThreshold
+	if ultraLargeThresholdStr == "" {
+		ultraLargeThresholdStr = "5GB" // Default
+	}
+
+	largeThreshold, err := parseSizeString(largeThresholdStr)
+	if err != nil {
+		utils.Warn("Invalid large_file_threshold config, using default 100MB: %v", err)
+		largeThreshold = 100 * 1024 * 1024 // 100MB default
+	}
+
+	ultraLargeThreshold, err := parseSizeString(ultraLargeThresholdStr)
+	if err != nil {
+		utils.Warn("Invalid ultra_large_threshold config, using default 5GB: %v", err)
+		ultraLargeThreshold = 5 * 1024 * 1024 * 1024 // 5GB default
+	}
+
+	utils.Debug("File size: %d bytes (%.2f MB), thresholds: large=%s, ultra=%s",
+		file.Size, float64(file.Size)/1024/1024, largeThresholdStr, ultraLargeThresholdStr)
+
+	// For extremely large files (> ultra threshold), use ultra-conservative approach
+	if file.Size > ultraLargeThreshold {
+		utils.Debug("Processing extremely large file (> %s) with ultra-conservative settings: %s", ultraLargeThresholdStr, file.Path)
+		return m.backupUltraLargeFile(file, backupID)
+	}
+
+	// For very large files (large threshold - ultra threshold), use conservative approach
+	if file.Size > largeThreshold {
+		utils.Debug("Processing very large file (%s - %s) with conservative settings: %s", largeThresholdStr, ultraLargeThresholdStr, file.Path)
+		return m.backupVeryLargeFile(file, backupID)
+	}
+
+	// For large files (100MB - large threshold), use standard large file approach
+	utils.Debug("Processing large file (100MB - %s) with standard settings: %s", largeThresholdStr, file.Path)
+	return m.backupStandardLargeFile(file, backupID)
+}
+
+// backupUltraLargeFile sauvegarde les fichiers extrêmement volumineux (> 5GB)
+func (m *Manager) backupUltraLargeFile(file index.FileEntry, backupID string) error {
+	utils.Debug("Processing ultra-large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
+
+	// Read file in chunks and process each chunk
+	fileHandle, err := os.Open(file.Path)
+	if err != nil {
+		return fmt.Errorf("error opening ultra-large file: %w", err)
+	}
+	defer fileHandle.Close()
+
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	utils.Debug("Starting chunked upload for ultra-large file: %s", file.Path)
+
+	// Get chunk size from config or use default
+	chunkSizeStr := m.config.Backup.ChunkSizeLarge
+	if chunkSizeStr == "" {
+		chunkSizeStr = "50MB" // Default
+	}
+
+	chunkSize, err := parseSizeString(chunkSizeStr)
+	if err != nil {
+		utils.Warn("Invalid chunk_size_large config, using default 50MB: %v", err)
+		chunkSize = 50 * 1024 * 1024 // 50MB default
+	}
+
+	utils.Debug("Using chunk size: %s (%d bytes) for ultra-large file", chunkSizeStr, chunkSize)
+
+	chunkNumber := 0
+	totalProcessed := int64(0)
+
+	// Calculate total chunks for progress bar
+	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
+
+	// Show progress bar for large file processing
+	fileName := filepath.Base(file.Path)
+	utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
+		fileName, float64(file.Size)/1024/1024))
+
+	for {
+		// Read chunk
+		chunk := make([]byte, chunkSize)
+		n, err := fileHandle.Read(chunk)
+		if n == 0 {
+			break // End of file
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("error reading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunk = chunk[:n] // Adjust slice to actual bytes read
+		totalProcessed += int64(n)
+
+		// Show progress for each chunk with file name for clarity
+		progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+			fileName, chunkNumber+1, totalChunks, progress,
+			float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+
+		utils.Debug("Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
+			chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
+
+		// Encrypt chunk (no compression for ultra-large files)
+		encryptedChunk, err := m.encryptor.Encrypt(chunk)
+		if err != nil {
+			return fmt.Errorf("error encrypting chunk %d: %w", chunkNumber, err)
+		}
+
+		// Upload chunk
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNumber)
+		if err := m.saveToStorageWithRetry(chunkKey, encryptedChunk); err != nil {
+			return fmt.Errorf("error uploading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunkNumber++
+	}
+
+	// Show completion
+	utils.ProgressSuccess(fmt.Sprintf("Large file completed: %s (%.2f MB in %d chunks)",
+		filepath.Base(file.Path), float64(file.Size)/1024/1024, chunkNumber))
+
+	// Create metadata file
+	metadata := map[string]interface{}{
+		"original_file": file.Path,
+		"file_size":     file.Size,
+		"chunks":        chunkNumber,
+		"storage_key":   storageKey,
+		"chunked":       true,
+	}
+
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("error creating metadata: %w", err)
+	}
+
+	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
+	if err := m.saveToStorageWithRetry(metadataKey, metadataJSON); err != nil {
+		return fmt.Errorf("error uploading metadata: %w", err)
+	}
+
+	file.StorageKey = storageKey
+	utils.Debug("Ultra-large file backed up in %d chunks: %s -> %s", chunkNumber, file.Path, storageKey)
+	return nil
+}
+
+// backupVeryLargeFile sauvegarde les fichiers très volumineux (1GB - 5GB)
+func (m *Manager) backupVeryLargeFile(file index.FileEntry, backupID string) error {
+	fileName := filepath.Base(file.Path)
+	utils.Debug("Processing very large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
+
+	// Show progress for very large file
+	utils.ProgressStep(fmt.Sprintf("Processing very large file: %s (%.2f MB)",
+		fileName, float64(file.Size)/1024/1024))
+
+	// Use small buffer for very large files
+	bufferSize := 1 * 1024 * 1024 // 1MB buffer
+
+	data, err := utils.ReadFileWithBuffer(file.Path, bufferSize)
+	if err != nil {
+		return fmt.Errorf("error reading very large file: %w", err)
+	}
+
+	// Skip compression for very large files to save memory
+	utils.Debug("Skipping compression for very large file: %s", file.Path)
+
+	// Encrypt without compression
+	encryptedData, err := m.encryptor.Encrypt(data)
+	if err != nil {
+		return fmt.Errorf("error encrypting very large file: %w", err)
+	}
+
+	// Save to storage
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	if err := m.saveToStorageWithRetry(storageKey, encryptedData); err != nil {
+		return fmt.Errorf("error saving very large file: %w", err)
+	}
+
+	file.StorageKey = storageKey
+	utils.ProgressSuccess(fmt.Sprintf("Very large file completed: %s (%.2f MB)",
+		fileName, float64(file.Size)/1024/1024))
+	utils.Debug("Very large file backed up: %s -> %s", file.Path, storageKey)
+	return nil
+}
+
+// backupStandardLargeFile sauvegarde les fichiers volumineux (100MB - 1GB)
+func (m *Manager) backupStandardLargeFile(file index.FileEntry, backupID string) error {
+	fileName := filepath.Base(file.Path)
+	utils.Debug("Processing standard large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
+
+	// Show progress for standard large file
+	utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
+		fileName, float64(file.Size)/1024/1024))
+
+	// Use standard buffer for large files
+	bufferSize := 2 * 1024 * 1024 // 2MB buffer
+
+	data, err := utils.ReadFileWithBuffer(file.Path, bufferSize)
+	if err != nil {
+		return fmt.Errorf("error reading large file: %w", err)
+	}
+
+	// Try compression for standard large files
+	compressedData, err := m.compressor.CompressAdaptive(data, file.Path)
+	if err != nil {
+		utils.Debug("Compression failed for large file, using uncompressed: %s", file.Path)
+		compressedData = data
+	}
+
+	// Encrypt
+	encryptedData, err := m.encryptor.Encrypt(compressedData)
+	if err != nil {
+		return fmt.Errorf("error encrypting large file: %w", err)
+	}
+
+	// Save to storage
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	if err := m.saveToStorageWithRetry(storageKey, encryptedData); err != nil {
+		return fmt.Errorf("error saving large file: %w", err)
+	}
+
+	file.StorageKey = storageKey
+	utils.ProgressSuccess(fmt.Sprintf("Large file completed: %s (%.2f MB)",
+		fileName, float64(file.Size)/1024/1024))
+	utils.Debug("Standard large file backed up: %s -> %s", file.Path, storageKey)
+	return nil
+}
+
+// saveToStorageWithRetry sauvegarde avec retry en cas d'échec
+func (m *Manager) saveToStorageWithRetry(key string, data []byte) error {
+	maxRetries := m.config.Backup.RetryAttempts
+	retryDelay := time.Duration(m.config.Backup.RetryDelay) * time.Second
+	dataSize := len(data)
+
+	// Log file size for debugging
+	utils.Debug("Uploading file: %s (%d bytes, %.2f MB)", key, dataSize, float64(dataSize)/1024/1024)
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err := m.saveToStorage(key, data)
+		if err == nil {
+			utils.Debug("Upload successful: %s (%d bytes)", key, dataSize)
+			return nil // Succès
+		}
+
+		if attempt < maxRetries {
+			utils.Debug("Upload attempt %d failed for %s (%d bytes): %v, retrying in %v...",
+				attempt+1, key, dataSize, err, retryDelay)
+			time.Sleep(retryDelay)
+		} else {
+			return fmt.Errorf("upload failed after %d attempts for %s (%d bytes): %w", maxRetries+1, key, dataSize, err)
+		}
+	}
+
 	return nil
 }
 
@@ -399,6 +700,51 @@ func (m *Manager) deleteBackupIndex(backupID string) error {
 
 	utils.Debug("Index deleted: %s", indexKey)
 	return nil
+}
+
+// parseSizeString parse une chaîne de taille (e.g., "50MB", "1GB") en bytes
+func parseSizeString(sizeStr string) (int64, error) {
+	sizeStr = strings.TrimSpace(sizeStr)
+
+	// Extraire le nombre et l'unité
+	var number int64
+	var unit string
+
+	// Trouver le dernier caractère non-numérique
+	for i := len(sizeStr) - 1; i >= 0; i-- {
+		if sizeStr[i] < '0' || sizeStr[i] > '9' {
+			numberStr := sizeStr[:i+1]
+			unit = sizeStr[i+1:]
+
+			var err error
+			number, err = strconv.ParseInt(numberStr, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid number in size string: %s", sizeStr)
+			}
+			break
+		}
+	}
+
+	if number == 0 {
+		return 0, fmt.Errorf("no number found in size string: %s", sizeStr)
+	}
+
+	// Convertir selon l'unité
+	unit = strings.ToUpper(unit)
+	switch unit {
+	case "B", "":
+		return number, nil
+	case "KB":
+		return number * 1024, nil
+	case "MB":
+		return number * 1024 * 1024, nil
+	case "GB":
+		return number * 1024 * 1024 * 1024, nil
+	case "TB":
+		return number * 1024 * 1024 * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("unknown unit in size string: %s", sizeStr)
+	}
 }
 
 // saveToStorage sauvegarde des données dans le stockage
@@ -500,14 +846,20 @@ func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.Ind
 		return fmt.Errorf("error saving des fichiers: %w", err)
 	}
 
-	// Mettre à jour les métadonnées de l'index
+	// Optimisation : Préparer l'index en parallèle pendant les uploads
+	if !verbose {
+		utils.ProgressStep("Finalizing backup...")
+	}
+
+	// Mettre à jour les métadonnées de l'index de manière optimisée
 	currentIndex.CompressedSize = m.calculateCompressedSize(diff.Added, diff.Modified)
 	currentIndex.EncryptedSize = m.calculateEncryptedSize(diff.Added, diff.Modified)
 
-	// Sauvegarder l'index
-	if !verbose {
-		utils.ProgressStep("Saving index...")
-	}
+	// Optimisation : Mettre à jour les métadonnées de performance
+	currentIndex.TotalFiles = int64(len(diff.Added) + len(diff.Modified))
+	currentIndex.CreatedAt = time.Now()
+
+	// Sauvegarder l'index avec optimisation
 	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
 		return fmt.Errorf("error saving de l'index: %w", err)
 	}

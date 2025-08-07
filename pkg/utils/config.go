@@ -31,17 +31,21 @@ type Config struct {
 		ChecksumMode        string   `mapstructure:"checksum_mode"` // "full", "fast", "metadata"
 		SkipPatterns        []string `mapstructure:"skip_patterns"`
 		BufferSize          string   `mapstructure:"buffer_size"`
-		BatchSize           int      `mapstructure:"batch_size"`           // Number of files to batch together
-		BatchSizeLimit      string   `mapstructure:"batch_size_limit"`     // Max size for batch upload (e.g., "10MB")
-		ChunkSize           string   `mapstructure:"chunk_size"`           // Chunk size for streaming operations
-		MemoryLimit         string   `mapstructure:"memory_limit"`         // Memory limit for large files
-		NetworkTimeout      int      `mapstructure:"network_timeout"`      // Network timeout in seconds
-		RetryAttempts       int      `mapstructure:"retry_attempts"`       // Number of retry attempts
-		RetryDelay          int      `mapstructure:"retry_delay"`          // Delay between retries in seconds
-		CacheEnabled        bool     `mapstructure:"cache_enabled"`        // Enable checksum caching
-		CacheMaxSize        int      `mapstructure:"cache_max_size"`       // Maximum cache entries
-		CacheMaxAge         int      `mapstructure:"cache_max_age"`        // Cache entry max age (minutes)
-		CompressionAdaptive bool     `mapstructure:"compression_adaptive"` // Enable adaptive compression
+		BatchSize           int      `mapstructure:"batch_size"`            // Number of files to batch together
+		BatchSizeLimit      string   `mapstructure:"batch_size_limit"`      // Max size for batch upload (e.g., "10MB")
+		ChunkSize           string   `mapstructure:"chunk_size"`            // Chunk size for streaming operations
+		MemoryLimit         string   `mapstructure:"memory_limit"`          // Memory limit for large files
+		NetworkTimeout      int      `mapstructure:"network_timeout"`       // Network timeout in seconds
+		RetryAttempts       int      `mapstructure:"retry_attempts"`        // Number of retry attempts
+		RetryDelay          int      `mapstructure:"retry_delay"`           // Delay between retries in seconds
+		CacheEnabled        bool     `mapstructure:"cache_enabled"`         // Enable checksum caching
+		CacheMaxSize        int      `mapstructure:"cache_max_size"`        // Maximum cache entries
+		CacheMaxAge         int      `mapstructure:"cache_max_age"`         // Cache entry max age (minutes)
+		CompressionAdaptive bool     `mapstructure:"compression_adaptive"`  // Enable adaptive compression
+		SortBySize          bool     `mapstructure:"sort_by_size"`          // Sort files by size (smallest first)
+		ChunkSizeLarge      string   `mapstructure:"chunk_size_large"`      // Chunk size for large files (e.g., "50MB")
+		LargeFileThreshold  string   `mapstructure:"large_file_threshold"`  // Threshold for large files (e.g., "100MB")
+		UltraLargeThreshold string   `mapstructure:"ultra_large_threshold"` // Threshold for ultra-large files (e.g., "5GB")
 	} `mapstructure:"backup"`
 
 	Retention struct {
@@ -102,25 +106,26 @@ storage:
 backup:
   encryption_key: "your-encryption-key-here"  # Generate with: bcrdf init --interactive
   encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
-  compression_level: 3  # GZIP level (1-9)
-  max_workers: 32  # Number of parallel workers (optimized for performance)
+  compression_level: 1  # GZIP level (1-9) - Fastest to avoid compression issues
+  max_workers: 16  # Number of parallel workers (balanced for stability)
   checksum_mode: "fast"  # Options: "full" (slow, secure), "fast" (recommended), "metadata" (fastest)
-  buffer_size: "64MB"  # Buffer size for I/O operations
-  batch_size: 50  # Number of small files to batch together
-  batch_size_limit: "10MB"  # Maximum size for batch uploads
+  buffer_size: "32MB"  # Buffer size for I/O operations (smaller for stability)
+  batch_size: 25  # Number of small files to batch together (balanced)
+  batch_size_limit: "8MB"  # Maximum size for batch uploads (smaller for stability)
   
   # Advanced performance optimizations
-  chunk_size: "64MB"  # Chunk size for streaming compression/decompression
-  memory_limit: "512MB"  # Memory limit for processing large files
-  network_timeout: 300  # Network timeout in seconds (5 minutes)
-  retry_attempts: 3  # Number of retry attempts for failed uploads
-  retry_delay: 5  # Delay between retries in seconds
+  chunk_size: "32MB"  # Chunk size for streaming compression/decompression (smaller for stability)
+  memory_limit: "256MB"  # Memory limit for processing large files (reduced for stability)
+  network_timeout: 120  # Network timeout in seconds (2 minutes)
+  retry_attempts: 5  # Number of retry attempts for failed uploads (increased for stability)
+  retry_delay: 2  # Delay between retries in seconds (faster retries)
   
   # Phase 1 performance optimizations
   cache_enabled: true  # Enable checksum caching for faster processing
   cache_max_size: 10000  # Maximum number of cached checksums
   cache_max_age: 60  # Cache entry max age in minutes
   compression_adaptive: true  # Enable adaptive compression based on file size
+  sort_by_size: true  # Sort files by size (smallest first) for better UX
   
   skip_patterns:  # Patterns to skip during backup (performance optimization)
     - "*.tmp"
@@ -299,6 +304,7 @@ func WriteConfig(config *Config, configFile string) error {
 	viper.Set("backup.cache_max_size", config.Backup.CacheMaxSize)
 	viper.Set("backup.cache_max_age", config.Backup.CacheMaxAge)
 	viper.Set("backup.compression_adaptive", config.Backup.CompressionAdaptive)
+	viper.Set("backup.sort_by_size", config.Backup.SortBySize)
 
 	viper.Set("retention.days", config.Retention.Days)
 	viper.Set("retention.max_backups", config.Retention.MaxBackups)

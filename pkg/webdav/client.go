@@ -82,19 +82,19 @@ func NewClient(baseURL, username, password string) (*Client, error) {
 			Timeout: 10 * time.Minute, // Extended timeout for very large files
 			Transport: &http.Transport{
 				// Advanced connection pooling
-				MaxIdleConns:          100,        // More connections in pool
-				MaxIdleConnsPerHost:   50,         // More per host
-				IdleConnTimeout:       120 * time.Second,  // Longer keep-alive
-				DisableCompression:    true,       // Disable HTTP compression
-				DisableKeepAlives:     false,      // Keep connections open
-				
+				MaxIdleConns:        100,               // More connections in pool
+				MaxIdleConnsPerHost: 50,                // More per host
+				IdleConnTimeout:     120 * time.Second, // Longer keep-alive
+				DisableCompression:  true,              // Disable HTTP compression
+				DisableKeepAlives:   false,             // Keep connections open
+
 				// Optimized TLS settings
-				TLSHandshakeTimeout:   10 * time.Second,   // Faster handshake
-				ResponseHeaderTimeout:  30 * time.Second,   // Faster response
-				ExpectContinueTimeout:  5 * time.Second,    // Faster expect
-				
+				TLSHandshakeTimeout:   10 * time.Second, // Faster handshake
+				ResponseHeaderTimeout: 30 * time.Second, // Faster response
+				ExpectContinueTimeout: 5 * time.Second,  // Faster expect
+
 				// Optimized TCP settings
-				DialContext:           (&net.Dialer{
+				DialContext: (&net.Dialer{
 					Timeout:   30 * time.Second,
 					KeepAlive: 30 * time.Second,
 				}).DialContext,
@@ -319,13 +319,8 @@ func (c *Client) createDirectory(dirPath string) error {
 	case 201:
 		utils.Debug("Directory created: %s", dirPath)
 		return nil
-	case 405:
-		// Méthode non autorisée - probablement que le répertoire existe déjà
-		utils.Debug("Directory already exists: %s", dirPath)
-		return nil
-	case 409:
-		// Conflict - le répertoire parent n'existe peut-être pas, ou le répertoire existe déjà
-		utils.Debug("Conflict during creation (directory probably exists): %s", dirPath)
+	case 405, 409:
+		// Directory already exists - don't log to reduce noise
 		return nil
 	default:
 		body, _ := io.ReadAll(resp.Body)

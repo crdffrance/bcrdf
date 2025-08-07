@@ -8,14 +8,15 @@
 
 ## ✨ Key Features
 
-### 🆕 **Latest Features (v2.2.0)**
-- 🚀 **Major performance optimizations** (50-100% speed improvement)
-- ⚡ **S3 upload/download optimization** (64MB parts, 10 concurrent operations)
-- 🔄 **Streaming compression** for memory-efficient large file processing
-- 🎯 **Advanced configuration** with network timeouts and retry logic
-- 🧹 **Automatic retention management** with configurable policies
-- 🖥️ **Interactive configuration wizard** with presets for popular services
-- 🌍 **Fully internationalized** interface (English)
+### 🆕 **Latest Features (v2.3.0)**
+- 🚀 **Ultra-large file support** with configurable chunked uploads (up to 5GB+ files)
+- 📊 **Enhanced progress bars** with file-specific tracking for large files
+- 🔄 **Intelligent file sorting** (smallest first) for better UX
+- 🧹 **Optimized retention** without downloading all indexes
+- 🎯 **Configurable chunk sizes** and thresholds for different file types
+- ⚡ **Memory-efficient streaming** for ultra-large files
+- 🖥️ **Improved presentation** with clear file identification
+- 🌍 **Complete restoration support** for chunked files
 
 ### 🔧 **Core Features**
 - 🔄 **Incremental backups** with intelligent index-based deduplication
@@ -26,6 +27,8 @@
 - 🎯 **Precise restoration** to any point in time
 - ⚡ **High performance** with concurrent processing
 - 🛡️ **Data integrity** with cryptographic checksums
+- 📁 **Large file handling** with configurable chunking and streaming
+- 🔄 **Smart file processing** with size-based sorting and thresholds
 
 ## 🚀 Quick Start
 
@@ -87,9 +90,13 @@ storage:
 backup:
   encryption_key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   encryption_algo: "aes-256-gcm"
-  compression_level: 3
-  max_workers: 10
+  compression_level: 1
+  max_workers: 16
   checksum_mode: "fast"  # Options: "full", "fast", "metadata"
+  chunk_size_large: "50MB"      # Chunk size for large files
+  large_file_threshold: "100MB"  # Threshold for large files
+  ultra_large_threshold: "1GB"   # Threshold for ultra-large files
+  sort_by_size: true             # Sort files by size (smallest first)
 
 retention:
   days: 30
@@ -256,32 +263,40 @@ The `init` command simplifies BCRDF setup and validation:
 
 ## ⚡ Performance Optimization
 
-BCRDF v2.2.0 includes major performance optimizations for faster backups:
+BCRDF v2.3.0 includes major performance optimizations for faster backups and large file handling:
 
-### 🚀 **S3 Optimizations**
-- **64MB Part Size**: Optimized for faster uploads/downloads (+20-30% speed)
-- **10 Concurrent Operations**: Parallel processing for better throughput
-- **Automatic Error Handling**: Cleanup on failures with retry logic
+### 🚀 **Ultra-Large File Support**
+- **Configurable Chunking**: 25MB-100MB chunks for files > 1GB
+- **Memory-Efficient Streaming**: Handles files up to 5GB+ without OOM
+- **Progress Tracking**: File-specific progress bars for large files
+- **Smart Thresholds**: Configurable size thresholds (100MB, 1GB, 5GB)
 
-### 🔄 **Streaming Compression**
-- **Chunk-based Processing**: 64MB chunks for memory efficiency
-- **Large File Support**: Handles files of any size without memory issues
-- **Adaptive Compression**: Skips already compressed files (images, videos, archives)
+### 🔄 **Enhanced Performance**
+- **Intelligent Sorting**: Processes smaller files first for better UX
+- **Optimized Retention**: No index downloading for faster cleanup
+- **Configurable Workers**: 2-32 parallel workers based on needs
+- **Adaptive Compression**: Skips already compressed files
 
 ### ⚙️ **Advanced Configuration**
 ```yaml
 backup:
   # Performance settings
-  max_workers: 32              # Parallel workers (default: 32)
+  max_workers: 16              # Parallel workers (default: 16)
   checksum_mode: "fast"        # 5x faster than "full" mode
-  buffer_size: "64MB"          # I/O buffer size
-  chunk_size: "64MB"           # Streaming chunk size
-  memory_limit: "512MB"        # Memory limit for large files
+  buffer_size: "32MB"          # I/O buffer size
+  chunk_size: "32MB"           # Streaming chunk size
+  memory_limit: "256MB"        # Memory limit for large files
+  
+  # Large file settings
+  chunk_size_large: "50MB"     # Chunk size for large files
+  large_file_threshold: "100MB" # Threshold for large files
+  ultra_large_threshold: "1GB"  # Threshold for ultra-large files
+  sort_by_size: true           # Sort files by size (smallest first)
   
   # Network settings
-  network_timeout: 300         # 5 minutes timeout
-  retry_attempts: 3            # Retry failed uploads
-  retry_delay: 5               # Delay between retries
+  network_timeout: 120         # 2 minutes timeout
+  retry_attempts: 5            # Retry failed uploads
+  retry_delay: 2               # Delay between retries
   
   # File filtering
   skip_patterns:               # Skip these file types

@@ -18,10 +18,10 @@ type ChecksumCache struct {
 
 // CacheEntry represents a cached checksum entry
 type CacheEntry struct {
-	Checksum   string
-	Size       int64
-	ModTime    time.Time
-	CreatedAt  time.Time
+	Checksum    string
+	Size        int64
+	ModTime     time.Time
+	CreatedAt   time.Time
 	AccessCount int64
 }
 
@@ -73,19 +73,19 @@ func (cc *ChecksumCache) GetOrCompute(filePath string, fileSize int64, modTime t
 
 	// Compute new checksum
 	checksum := cc.computeChecksum(data)
-	
+
 	// Store in cache
 	cc.cache[filePath] = CacheEntry{
-		Checksum:   checksum,
-		Size:       fileSize,
-		ModTime:    modTime,
-		CreatedAt:  time.Now(),
+		Checksum:    checksum,
+		Size:        fileSize,
+		ModTime:     modTime,
+		CreatedAt:   time.Now(),
 		AccessCount: 1,
 	}
-	
+
 	cc.stats.Misses++
 	cc.stats.Size = len(cc.cache)
-	
+
 	utils.Debug("Cache MISS for: %s (computed new checksum)", filePath)
 	return checksum
 }
@@ -115,10 +115,10 @@ func (cc *ChecksumCache) Clear() {
 func (cc *ChecksumCache) Cleanup(maxAge time.Duration, maxSize int) {
 	cc.mutex.Lock()
 	defer cc.mutex.Unlock()
-	
+
 	now := time.Now()
 	removed := 0
-	
+
 	for path, entry := range cc.cache {
 		// Remove old entries
 		if now.Sub(entry.CreatedAt) > maxAge {
@@ -126,12 +126,12 @@ func (cc *ChecksumCache) Cleanup(maxAge time.Duration, maxSize int) {
 			removed++
 		}
 	}
-	
+
 	// If still too large, remove least accessed entries
 	if len(cc.cache) > maxSize {
 		cc.removeLeastAccessed(maxSize)
 	}
-	
+
 	cc.stats.Size = len(cc.cache)
 	utils.Debug("Cache cleanup: removed %d entries, current size: %d", removed, len(cc.cache))
 }
@@ -140,15 +140,15 @@ func (cc *ChecksumCache) Cleanup(maxAge time.Duration, maxSize int) {
 func (cc *ChecksumCache) removeLeastAccessed(targetSize int) {
 	// Create slice of entries for sorting
 	type entryWithPath struct {
-		path   string
-		entry  CacheEntry
+		path  string
+		entry CacheEntry
 	}
-	
+
 	entries := make([]entryWithPath, 0, len(cc.cache))
 	for path, entry := range cc.cache {
 		entries = append(entries, entryWithPath{path, entry})
 	}
-	
+
 	// Sort by access count (ascending)
 	for i := 0; i < len(entries)-1; i++ {
 		for j := i + 1; j < len(entries); j++ {
@@ -157,10 +157,10 @@ func (cc *ChecksumCache) removeLeastAccessed(targetSize int) {
 			}
 		}
 	}
-	
+
 	// Remove least accessed entries
 	toRemove := len(entries) - targetSize
 	for i := 0; i < toRemove; i++ {
 		delete(cc.cache, entries[i].path)
 	}
-} 
+}

@@ -31,7 +31,7 @@ func main() {
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		<-sigChan
 		fmt.Println("\n⚠️  Interruption detected. Finishing current operation...")

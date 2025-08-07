@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -78,14 +79,25 @@ func NewClient(baseURL, username, password string) (*Client, error) {
 		username: username,
 		password: password,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Minute, // Increased timeout for large files
+			Timeout: 10 * time.Minute, // Extended timeout for very large files
 			Transport: &http.Transport{
-				TLSHandshakeTimeout:   30 * time.Second,
-				ResponseHeaderTimeout: 60 * time.Second,
-				ExpectContinueTimeout: 10 * time.Second,
-				IdleConnTimeout:       90 * time.Second,
-				MaxIdleConns:          10,
-				MaxIdleConnsPerHost:   10,
+				// Advanced connection pooling
+				MaxIdleConns:          100,        // More connections in pool
+				MaxIdleConnsPerHost:   50,         // More per host
+				IdleConnTimeout:       120 * time.Second,  // Longer keep-alive
+				DisableCompression:    true,       // Disable HTTP compression
+				DisableKeepAlives:     false,      // Keep connections open
+				
+				// Optimized TLS settings
+				TLSHandshakeTimeout:   10 * time.Second,   // Faster handshake
+				ResponseHeaderTimeout:  30 * time.Second,   // Faster response
+				ExpectContinueTimeout:  5 * time.Second,    // Faster expect
+				
+				// Optimized TCP settings
+				DialContext:           (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
 			},
 		},
 	}, nil

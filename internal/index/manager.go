@@ -18,12 +18,14 @@ type Manager struct {
 	configFile    string
 	config        *utils.Config
 	storageClient storage.Client
+	checksumCache *ChecksumCache
 }
 
 // NewManager crée un nouveau gestionnaire d'index
 func NewManager(configFile string) *Manager {
 	return &Manager{
-		configFile: configFile,
+		configFile:    configFile,
+		checksumCache: NewChecksumCache(),
 	}
 }
 
@@ -60,6 +62,14 @@ func (m *Manager) CreateIndexWithMode(sourcePath, backupID, checksumMode string,
 	if verbose {
 		utils.Info("Index created with %d files, total size: %d bytes",
 			index.TotalFiles, index.TotalSize)
+		
+		// Show cache statistics
+		stats := m.checksumCache.GetStats()
+		if stats.Hits > 0 || stats.Misses > 0 {
+			hitRate := float64(stats.Hits) / float64(stats.Hits+stats.Misses) * 100
+			utils.Info("Cache performance: %d hits, %d misses (%.1f%% hit rate)", 
+				stats.Hits, stats.Misses, hitRate)
+		}
 	} else {
 		utils.ProgressDone(fmt.Sprintf("Index created with %d files", index.TotalFiles))
 	}
@@ -490,7 +500,7 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 			return nil
 		}
 
-		entry, err := NewFileEntryWithMode(path, info, checksumMode)
+		entry, err := NewFileEntryWithModeAndCache(path, info, checksumMode, m.checksumCache)
 		if err != nil {
 			if verbose {
 				utils.Warn("Error creating entry for %s: %v", path, err)

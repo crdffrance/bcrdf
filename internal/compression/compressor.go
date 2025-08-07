@@ -134,7 +134,22 @@ func (c *Compressor) Compress(data []byte) ([]byte, error) {
 }
 
 // Decompress décompresse des données avec GZIP
+// IsCompressed checks if data appears to be GZIP compressed
+func (c *Compressor) IsCompressed(data []byte) bool {
+	if len(data) < 2 {
+		return false
+	}
+	// GZIP magic number: 0x1f 0x8b
+	return data[0] == 0x1f && data[1] == 0x8b
+}
+
 func (c *Compressor) Decompress(data []byte) ([]byte, error) {
+	// Check if data is actually compressed
+	if !c.IsCompressed(data) {
+		utils.Debug("Data not compressed, returning as-is: %d bytes", len(data))
+		return data, nil
+	}
+
 	// Créer un reader GZIP
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {

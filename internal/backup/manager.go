@@ -61,9 +61,22 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 		return err
 	}
 
-	diff, err := m.calculateBackupDiff(currentIndex, verbose)
+	diff, err := m.calculateBackupDiff(currentIndex, backupName, verbose)
 	if err != nil {
 		return err
+	}
+
+	// Vérifier s'il y a des fichiers à sauvegarder
+	totalFilesToBackup := len(diff.Added) + len(diff.Modified)
+	if totalFilesToBackup == 0 {
+		// Aucun fichier à sauvegarder, skip le backup
+		if verbose {
+			utils.Info("🔄 No files to backup, skipping backup creation")
+		} else {
+			utils.ProgressInfo("No files to backup, skipping backup creation")
+		}
+		m.logBackupCompletion(diff, time.Since(startTime), verbose)
+		return nil
 	}
 
 	if err := m.executeBackup(currentIndex, diff, backupID, verbose); err != nil {
@@ -72,13 +85,15 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 
 	m.logBackupCompletion(diff, time.Since(startTime), verbose)
 
-	// Apply retention policy after successful backup
-	if err := m.applyRetentionPolicy(verbose); err != nil {
-		// Don't fail the backup if retention fails, just warn
-		if verbose {
-			utils.Warn("Retention policy application failed: %v", err)
-		} else {
-			utils.ProgressWarning("Retention cleanup failed")
+	// Apply retention policy only if a backup was actually created
+	if totalFilesToBackup > 0 {
+		if err := m.applyRetentionPolicy(verbose); err != nil {
+			// Don't fail the backup if retention fails, just warn
+			if verbose {
+				utils.Warn("Retention policy application failed: %v", err)
+			} else {
+				utils.ProgressWarning("Retention cleanup failed")
+			}
 		}
 	}
 
@@ -164,7 +179,7 @@ func (m *Manager) initializeComponents() error {
 }
 
 // findPreviousBackup trouve la sauvegarde précédente
-func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
+func (m *Manager) findPreviousBackup(currentBackupName string) (*index.BackupIndex, error) {
 	// Charger la configuration si nécessaire
 	if m.config == nil {
 		config, err := utils.LoadConfig(m.configFile)
@@ -196,6 +211,8 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 		keys[i] = obj.Key
 	}
 
+	utils.Debug("Found %d indexes: %v", len(keys), keys)
+
 	if len(keys) == 0 {
 		utils.Debug("No index found, first backup")
 		return nil, nil
@@ -206,14 +223,64 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 	var latestTime time.Time
 
 	// Trier les clés par nom (les plus récentes en dernier)
-	sort.Strings(keys)
+	// ATTENTION: Tri alphabétique peut être incorrect pour les dates
+	// On va trier par timestamp extrait du nom
+	sort.Slice(keys, func(i, j int) bool {
+		// Extraire le timestamp du nom de fichier
+		// Format attendu: nom-YYYYMMDD-HHMMSS.json
+		keyI := keys[i]
+		keyJ := keys[j]
+
+		// Extraire la partie timestamp (dernière partie avant .json)
+		partsI := strings.Split(strings.TrimSuffix(keyI, ".json"), "-")
+		partsJ := strings.Split(strings.TrimSuffix(keyJ, ".json"), "-")
+
+		if len(partsI) < 2 || len(partsJ) < 2 {
+			// Fallback au tri alphabétique si format incorrect
+			return keyI < keyJ
+		}
+
+		// Comparer les timestamps (YYYYMMDD-HHMMSS)
+		timestampI := partsI[len(partsI)-2] + "-" + partsI[len(partsI)-1]
+		timestampJ := partsJ[len(partsJ)-2] + "-" + partsJ[len(partsJ)-1]
+
+		return timestampI < timestampJ
+	})
 
 	// Prendre le dernier index (le plus récent) sans télécharger les autres
-	for i := len(keys) - 1; i >= 0; i-- {
-		key := keys[i]
+	// Filtrer par nom de backup si spécifié
+	var filteredKeys []string
+
+	// Filtrer par nom de backup si spécifié
+	if currentBackupName != "" {
+		for _, key := range keys {
+			if strings.HasSuffix(key, ".json") {
+				keyBackupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
+				// Extraire le nom de backup (partie avant le timestamp)
+				parts := strings.Split(keyBackupID, "-")
+				if len(parts) >= 3 {
+					extractedBackupName := strings.Join(parts[:len(parts)-2], "-")
+					if extractedBackupName == currentBackupName {
+						filteredKeys = append(filteredKeys, key)
+					}
+				}
+			}
+		}
+		utils.Debug("Filtered backups by name '%s': %d found", currentBackupName, len(filteredKeys))
+	}
+
+	// Si on a des clés filtrées, utiliser celles-ci, sinon utiliser toutes
+	keysToUse := keys
+	if len(filteredKeys) > 0 {
+		keysToUse = filteredKeys
+	}
+
+	for i := len(keysToUse) - 1; i >= 0; i-- {
+		key := keysToUse[i]
 		if strings.HasSuffix(key, ".json") {
 			// Extraire l'ID de sauvegarde du nom de fichier
 			backupID := strings.TrimSuffix(strings.TrimPrefix(key, "indexes/"), ".json")
+			utils.Debug("Checking backup ID: %s", backupID)
 
 			// Charger uniquement cet index (le plus récent)
 			index, err := m.indexMgr.LoadIndex(backupID)
@@ -225,6 +292,7 @@ func (m *Manager) findPreviousBackup() (*index.BackupIndex, error) {
 			// Utiliser cet index comme le plus récent
 			latestTime = index.CreatedAt
 			latestKey = key
+			utils.Debug("Selected previous backup: %s (created: %s)", backupID, latestTime.Format("2006-01-02 15:04:05"))
 			break // Sortir après le premier index valide trouvé
 		}
 	}
@@ -550,7 +618,7 @@ func (m *Manager) backupUltraLargeFile(file index.FileEntry, backupID string) er
 	return nil
 }
 
-// backupVeryLargeFile sauvegarde les fichiers très volumineux (1GB - 5GB)
+// backupVeryLargeFile sauvegarde les fichiers très volumineux (100MB - 5GB) avec chunking
 func (m *Manager) backupVeryLargeFile(file index.FileEntry, backupID string) error {
 	fileName := filepath.Base(file.Path)
 	utils.Debug("Processing very large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
@@ -559,33 +627,102 @@ func (m *Manager) backupVeryLargeFile(file index.FileEntry, backupID string) err
 	utils.ProgressStep(fmt.Sprintf("Processing very large file: %s (%.2f MB)",
 		fileName, float64(file.Size)/1024/1024))
 
-	// Use small buffer for very large files
-	bufferSize := 1 * 1024 * 1024 // 1MB buffer
-
-	data, err := utils.ReadFileWithBuffer(file.Path, bufferSize)
+	// Read file in chunks and process each chunk
+	fileHandle, err := os.Open(file.Path)
 	if err != nil {
-		return fmt.Errorf("error reading very large file: %w", err)
+		return fmt.Errorf("error opening very large file: %w", err)
 	}
+	defer fileHandle.Close()
 
-	// Skip compression for very large files to save memory
-	utils.Debug("Skipping compression for very large file: %s", file.Path)
-
-	// Encrypt without compression
-	encryptedData, err := m.encryptor.Encrypt(data)
-	if err != nil {
-		return fmt.Errorf("error encrypting very large file: %w", err)
-	}
-
-	// Save to storage
 	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
-	if err := m.saveToStorageWithRetry(storageKey, encryptedData); err != nil {
-		return fmt.Errorf("error saving very large file: %w", err)
+	utils.Debug("Starting chunked upload for very large file: %s", file.Path)
+
+	// Get chunk size from config or use default
+	chunkSizeStr := m.config.Backup.ChunkSizeLarge
+	if chunkSizeStr == "" {
+		chunkSizeStr = "25MB" // Default for very large files
+	}
+
+	chunkSize, err := parseSizeString(chunkSizeStr)
+	if err != nil {
+		utils.Warn("Invalid chunk_size_large config, using default 25MB: %v", err)
+		chunkSize = 25 * 1024 * 1024 // 25MB default
+	}
+
+	utils.Debug("Using chunk size: %s (%d bytes) for very large file", chunkSizeStr, chunkSize)
+
+	chunkNumber := 0
+	totalProcessed := int64(0)
+
+	// Calculate total chunks for progress bar
+	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
+
+	for {
+		// Read chunk
+		chunk := make([]byte, chunkSize)
+		n, err := fileHandle.Read(chunk)
+		if n == 0 {
+			break // End of file
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("error reading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunk = chunk[:n] // Adjust slice to actual bytes read
+		totalProcessed += int64(n)
+
+		// Show progress for each chunk
+		progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+			fileName, chunkNumber+1, totalChunks, progress,
+			float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+
+		utils.Debug("Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
+			chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
+
+		// Skip compression for very large files to save memory
+		utils.Debug("Skipping compression for very large file chunk: %s", file.Path)
+
+		// Encrypt chunk (no compression for very large files)
+		encryptedChunk, err := m.encryptor.Encrypt(chunk)
+		if err != nil {
+			return fmt.Errorf("error encrypting chunk %d: %w", chunkNumber, err)
+		}
+
+		// Upload chunk
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNumber)
+		if err := m.saveToStorageWithRetry(chunkKey, encryptedChunk); err != nil {
+			return fmt.Errorf("error uploading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunkNumber++
+	}
+
+	// Show completion
+	utils.ProgressSuccess(fmt.Sprintf("Very large file completed: %s (%.2f MB in %d chunks)",
+		fileName, float64(file.Size)/1024/1024, chunkNumber))
+
+	// Create metadata file
+	metadata := map[string]interface{}{
+		"original_file": file.Path,
+		"file_size":     file.Size,
+		"chunks":        chunkNumber,
+		"storage_key":   storageKey,
+		"chunked":       true,
+	}
+
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("error creating metadata: %w", err)
+	}
+
+	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
+	if err := m.saveToStorageWithRetry(metadataKey, metadataJSON); err != nil {
+		return fmt.Errorf("error uploading metadata: %w", err)
 	}
 
 	file.StorageKey = storageKey
-	utils.ProgressSuccess(fmt.Sprintf("Very large file completed: %s (%.2f MB)",
-		fileName, float64(file.Size)/1024/1024))
-	utils.Debug("Very large file backed up: %s -> %s", file.Path, storageKey)
+	utils.Debug("Very large file backed up in %d chunks: %s -> %s", chunkNumber, file.Path, storageKey)
 	return nil
 }
 
@@ -803,12 +940,12 @@ func (m *Manager) createCurrentIndex(sourcePath, backupID string, verbose bool) 
 }
 
 // calculateBackupDiff calculates the difference between current and previous backup
-func (m *Manager) calculateBackupDiff(currentIndex *index.BackupIndex, verbose bool) (*index.IndexDiff, error) {
+func (m *Manager) calculateBackupDiff(currentIndex *index.BackupIndex, backupName string, verbose bool) (*index.IndexDiff, error) {
 	// Chercher la sauvegarde précédente pour comparaison
 	if !verbose {
 		utils.ProgressStep("Searching for previous backup...")
 	}
-	previousIndex, err := m.findPreviousBackup()
+	previousIndex, err := m.findPreviousBackup(backupName)
 	if err != nil {
 		if verbose {
 			utils.Warn("No previous backup found, performing full backup")

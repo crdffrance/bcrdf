@@ -42,22 +42,41 @@ func (c *Compressor) CompressFile(data []byte, filePath string) ([]byte, error) 
 // CompressAdaptive uses different compression levels based on file size
 func (c *Compressor) CompressAdaptive(data []byte, filePath string) ([]byte, error) {
 	fileSize := len(data)
-	
-	// Very large files (> 100MB): use fast compression
+
+	// Extremely large files (> 1GB): skip compression to avoid memory issues
+	if fileSize > 1024*1024*1024 {
+		utils.Debug("Extremely large file detected (%d bytes), skipping compression to avoid memory issues", fileSize)
+		return data, nil // Skip compression for very large files
+	}
+
+	// Very large files (> 100MB): use configured level (usually fast)
 	if fileSize > 100*1024*1024 {
-		utils.Debug("Large file detected (%d bytes), using fast compression", fileSize)
-		return c.CompressWithLevel(data, 1) // Level 1 = fastest
+		utils.Debug("Large file detected (%d bytes), using configured compression level %d", fileSize, c.level)
+		return c.CompressWithLevel(data, c.level) // Use configured level
 	}
-	
-	// Large files (10MB - 100MB): use balanced compression
+
+	// Large files (10MB - 100MB): use configured level
 	if fileSize > 10*1024*1024 {
-		utils.Debug("Medium file detected (%d bytes), using balanced compression", fileSize)
-		return c.CompressWithLevel(data, 3) // Level 3 = balanced
+		utils.Debug("Medium file detected (%d bytes), using configured compression level %d", fileSize, c.level)
+		return c.CompressWithLevel(data, c.level) // Use configured level
 	}
-	
-	// Small files (< 10MB): use good compression
-	utils.Debug("Small file detected (%d bytes), using good compression", fileSize)
-	return c.CompressWithLevel(data, 6) // Level 6 = good compression
+
+	// Small files (< 10MB): try compression and check if it's beneficial
+	utils.Debug("Small file detected (%d bytes), testing compression with level %d", fileSize, c.level)
+	compressed, err := c.CompressWithLevel(data, c.level) // Use configured level
+	if err != nil {
+		return nil, err
+	}
+
+	// If compression doesn't help (ratio > 95%), return original data
+	compressionRatio := float64(len(compressed)) / float64(fileSize) * 100
+	if compressionRatio > 95 {
+		utils.Debug("Compression not beneficial (ratio: %.2f%%), keeping original", compressionRatio)
+		return data, nil
+	}
+
+	utils.Debug("Compression beneficial (ratio: %.2f%%), using compressed data", compressionRatio)
+	return compressed, nil
 }
 
 // CompressWithLevel compresses data with a specific compression level

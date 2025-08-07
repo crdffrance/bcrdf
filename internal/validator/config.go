@@ -293,29 +293,33 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 
 	config.Backup.EncryptionKey = hex.EncodeToString([]byte(encryptionKey))
 	config.Backup.EncryptionAlgo = "aes-256-gcm"
-	config.Backup.CompressionLevel = 3
-	config.Backup.MaxWorkers = 32 // Optimized for performance
+	config.Backup.CompressionLevel = 1 // Fastest compression to avoid issues
+	config.Backup.MaxWorkers = 16      // Balanced for stability
 	config.Backup.ChecksumMode = "fast"
-	config.Backup.BufferSize = "64MB"
-	config.Backup.BatchSize = 50
-	config.Backup.BatchSizeLimit = "10MB"
+	config.Backup.BufferSize = "32MB"          // Smaller buffers for stability
+	config.Backup.ChunkSizeLarge = "50MB"      // Chunk size for large files
+	config.Backup.LargeFileThreshold = "100MB" // Threshold for large files
+	config.Backup.UltraLargeThreshold = "1GB"  // Threshold for ultra-large files
+	config.Backup.BatchSize = 25               // Balanced batches
+	config.Backup.BatchSizeLimit = "8MB"       // Smaller batch limit
 	config.Backup.SkipPatterns = []string{
 		"*.tmp", "*.cache", "*.log", ".DS_Store", "Thumbs.db",
 		"*.swp", "*.swo", "node_modules/", ".git/", "__pycache__/",
 		"*.zip", "*.tar.gz", "*.rar", "*.7z", "*.iso",
 		"*.vmdk", "*.vdi", "*.qcow2", "*.raw",
 	}
-	config.Backup.ChunkSize = "64MB"
-	config.Backup.MemoryLimit = "512MB"
-	config.Backup.NetworkTimeout = 300
-	config.Backup.RetryAttempts = 3
-	config.Backup.RetryDelay = 5
-	
+	config.Backup.ChunkSize = "32MB"    // Smaller chunks for stability
+	config.Backup.MemoryLimit = "256MB" // Less memory usage
+	config.Backup.NetworkTimeout = 120  // 2 minutes timeout
+	config.Backup.RetryAttempts = 5     // More retries for stability
+	config.Backup.RetryDelay = 2        // Shorter delay between retries
+
 	// Phase 1 performance optimizations
 	config.Backup.CacheEnabled = true
 	config.Backup.CacheMaxSize = 10000
 	config.Backup.CacheMaxAge = 60
 	config.Backup.CompressionAdaptive = true
+	config.Backup.SortBySize = true
 
 	config.Retention.Days = 30
 	config.Retention.MaxBackups = 10
@@ -505,7 +509,7 @@ func configureBackupInteractive(config *utils.Config) error {
 	// Performance settings
 	utils.PrintInfo("Performance settings (optimized defaults):")
 
-	config.Backup.MaxWorkers = utils.PromptInt("Number of parallel workers", 32, 1, 100)
+	config.Backup.MaxWorkers = utils.PromptInt("Number of parallel workers", 16, 1, 100)
 
 	checksumModes := []string{
 		"fast (recommended - 5x faster, very secure)",
@@ -522,30 +526,39 @@ func configureBackupInteractive(config *utils.Config) error {
 		config.Backup.ChecksumMode = "metadata"
 	}
 
-	config.Backup.CompressionLevel = utils.PromptInt("Compression level (1=fast, 9=best)", 3, 1, 9)
-	config.Backup.BufferSize = utils.PromptString("I/O buffer size", "64MB")
-	config.Backup.BatchSize = utils.PromptInt("Batch size for small files", 50, 1, 1000)
-	config.Backup.BatchSizeLimit = utils.PromptString("Batch size limit", "10MB")
+	config.Backup.CompressionLevel = utils.PromptInt("Compression level (1=fast, 9=best)", 1, 1, 9)
+	config.Backup.BufferSize = utils.PromptString("I/O buffer size", "32MB")
+	config.Backup.BatchSize = utils.PromptInt("Batch size for small files", 25, 1, 1000)
+	config.Backup.BatchSizeLimit = utils.PromptString("Batch size limit", "8MB")
 
 	// Advanced performance settings
 	utils.PrintInfo("Advanced performance settings:")
 
-	config.Backup.ChunkSize = utils.PromptString("Chunk size for streaming operations", "64MB")
-	config.Backup.MemoryLimit = utils.PromptString("Memory limit for large files", "512MB")
-	config.Backup.NetworkTimeout = utils.PromptInt("Network timeout (seconds)", 300, 30, 3600)
-	config.Backup.RetryAttempts = utils.PromptInt("Retry attempts for failed uploads", 3, 0, 10)
-	config.Backup.RetryDelay = utils.PromptInt("Delay between retries (seconds)", 5, 1, 60)
+	config.Backup.ChunkSize = utils.PromptString("Chunk size for streaming operations", "32MB")
+	config.Backup.MemoryLimit = utils.PromptString("Memory limit for large files", "256MB")
+	config.Backup.NetworkTimeout = utils.PromptInt("Network timeout (seconds)", 120, 30, 3600)
+	config.Backup.RetryAttempts = utils.PromptInt("Retry attempts for failed uploads", 5, 0, 10)
+	config.Backup.RetryDelay = utils.PromptInt("Delay between retries (seconds)", 2, 1, 60)
 
 	// Phase 1 performance optimizations
 	utils.PrintInfo("Phase 1 Performance Optimizations:")
-	
+
 	config.Backup.CacheEnabled = utils.PromptYesNo("Enable checksum caching for faster processing?", true)
 	if config.Backup.CacheEnabled {
 		config.Backup.CacheMaxSize = utils.PromptInt("Maximum cache entries", 10000, 1000, 100000)
 		config.Backup.CacheMaxAge = utils.PromptInt("Cache entry max age (minutes)", 60, 10, 1440)
 	}
-	
+
 	config.Backup.CompressionAdaptive = utils.PromptYesNo("Enable adaptive compression based on file size?", true)
+
+	config.Backup.SortBySize = utils.PromptYesNo("Sort files by size (smallest first) for better user experience?", true)
+
+	// Large file settings
+	utils.PrintInfo("Large File Handling Settings:")
+
+	config.Backup.ChunkSizeLarge = utils.PromptString("Chunk size for large files (e.g., 50MB)", "50MB")
+	config.Backup.LargeFileThreshold = utils.PromptString("Threshold for large files (e.g., 100MB)", "100MB")
+	config.Backup.UltraLargeThreshold = utils.PromptString("Threshold for ultra-large files (e.g., 1GB)", "1GB")
 
 	// Skip patterns
 	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, archives, etc.)?", true) {

@@ -33,6 +33,11 @@ type Config struct {
 		BufferSize       string   `mapstructure:"buffer_size"`
 		BatchSize        int      `mapstructure:"batch_size"`       // Number of files to batch together
 		BatchSizeLimit   string   `mapstructure:"batch_size_limit"` // Max size for batch upload (e.g., "10MB")
+		ChunkSize        string   `mapstructure:"chunk_size"`       // Chunk size for streaming operations
+		MemoryLimit      string   `mapstructure:"memory_limit"`     // Memory limit for large files
+		NetworkTimeout   int      `mapstructure:"network_timeout"`  // Network timeout in seconds
+		RetryAttempts    int      `mapstructure:"retry_attempts"`   // Number of retry attempts
+		RetryDelay       int      `mapstructure:"retry_delay"`      // Delay between retries in seconds
 	} `mapstructure:"backup"`
 
 	Retention struct {
@@ -197,6 +202,19 @@ func validateCommonConfig(config *Config) error {
 
 	if config.Backup.MaxWorkers < 1 {
 		return fmt.Errorf("number of workers must be greater than 0")
+	}
+
+	// Validate new performance optimization fields
+	if config.Backup.NetworkTimeout < 30 {
+		return fmt.Errorf("network timeout must be at least 30 seconds")
+	}
+
+	if config.Backup.RetryAttempts < 0 || config.Backup.RetryAttempts > 10 {
+		return fmt.Errorf("retry attempts must be between 0 and 10")
+	}
+
+	if config.Backup.RetryDelay < 1 || config.Backup.RetryDelay > 60 {
+		return fmt.Errorf("retry delay must be between 1 and 60 seconds")
 	}
 
 	return nil

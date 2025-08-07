@@ -19,6 +19,14 @@ backup:
   buffer_size: "64MB"  # Buffer size for I/O operations
   batch_size: 50  # Number of small files to batch together (performance optimization)
   batch_size_limit: "10MB"  # Maximum size for batch uploads
+  
+  # Advanced performance optimizations
+  chunk_size: "64MB"  # Chunk size for streaming compression/decompression
+  memory_limit: "512MB"  # Memory limit for processing large files
+  network_timeout: 300  # Network timeout in seconds (5 minutes)
+  retry_attempts: 3  # Number of retry attempts for failed uploads
+  retry_delay: 5  # Delay between retries in seconds
+  
   skip_patterns:  # Patterns to skip during backup (performance optimization)
     - "*.tmp"
     - "*.cache"
@@ -30,6 +38,15 @@ backup:
     - "node_modules/"
     - ".git/"
     - "__pycache__/"
+    - "*.zip"
+    - "*.tar.gz"
+    - "*.rar"
+    - "*.7z"
+    - "*.iso"
+    - "*.vmdk"
+    - "*.vdi"
+    - "*.qcow2"
+    - "*.raw"
 
 retention:
   days: 30  # Retention period in days

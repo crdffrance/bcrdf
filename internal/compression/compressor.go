@@ -180,6 +180,72 @@ func (c *Compressor) DecompressStream(input io.Reader, output io.Writer) error {
 	return nil
 }
 
+// CompressStreamOptimized compresses data in chunks for better memory efficiency
+func (c *Compressor) CompressStreamOptimized(input io.Reader, output io.Writer, chunkSize int) error {
+	if chunkSize <= 0 {
+		chunkSize = 64 * 1024 * 1024 // 64MB default
+	}
+
+	// Create GZIP writer
+	gzipWriter, err := gzip.NewWriterLevel(output, c.level)
+	if err != nil {
+		return fmt.Errorf("error creating GZIP writer: %w", err)
+	}
+	defer gzipWriter.Close()
+
+	// Process data in chunks
+	buffer := make([]byte, chunkSize)
+	for {
+		n, err := input.Read(buffer)
+		if n > 0 {
+			if _, writeErr := gzipWriter.Write(buffer[:n]); writeErr != nil {
+				return fmt.Errorf("error writing compressed data: %w", writeErr)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading input: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// DecompressStreamOptimized decompresses data in chunks for better memory efficiency
+func (c *Compressor) DecompressStreamOptimized(input io.Reader, output io.Writer, chunkSize int) error {
+	if chunkSize <= 0 {
+		chunkSize = 64 * 1024 * 1024 // 64MB default
+	}
+
+	// Create GZIP reader
+	gzipReader, err := gzip.NewReader(input)
+	if err != nil {
+		return fmt.Errorf("error creating GZIP reader: %w", err)
+	}
+	defer gzipReader.Close()
+
+	// Process data in chunks
+	buffer := make([]byte, chunkSize)
+	for {
+		n, err := gzipReader.Read(buffer)
+		if n > 0 {
+			if _, writeErr := output.Write(buffer[:n]); writeErr != nil {
+				return fmt.Errorf("error writing decompressed data: %w", writeErr)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading compressed data: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetCompressionRatio calcule le ratio de compression
 func (c *Compressor) GetCompressionRatio(originalSize, compressedSize int64) float64 {
 	if originalSize == 0 {

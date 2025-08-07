@@ -300,17 +300,16 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 	config.Backup.BatchSize = 50
 	config.Backup.BatchSizeLimit = "10MB"
 	config.Backup.SkipPatterns = []string{
-		"*.tmp",
-		"*.cache",
-		"*.log",
-		".DS_Store",
-		"Thumbs.db",
-		"*.swp",
-		"*.swo",
-		"node_modules/",
-		".git/",
-		"__pycache__/",
+		"*.tmp", "*.cache", "*.log", ".DS_Store", "Thumbs.db",
+		"*.swp", "*.swo", "node_modules/", ".git/", "__pycache__/",
+		"*.zip", "*.tar.gz", "*.rar", "*.7z", "*.iso",
+		"*.vmdk", "*.vdi", "*.qcow2", "*.raw",
 	}
+	config.Backup.ChunkSize = "64MB"
+	config.Backup.MemoryLimit = "512MB"
+	config.Backup.NetworkTimeout = 300
+	config.Backup.RetryAttempts = 3
+	config.Backup.RetryDelay = 5
 
 	config.Retention.Days = 30
 	config.Retention.MaxBackups = 10
@@ -521,6 +520,15 @@ func configureBackupInteractive(config *utils.Config) error {
 	config.Backup.BufferSize = utils.PromptString("I/O buffer size", "64MB")
 	config.Backup.BatchSize = utils.PromptInt("Batch size for small files", 50, 1, 1000)
 	config.Backup.BatchSizeLimit = utils.PromptString("Batch size limit", "10MB")
+
+	// Advanced performance settings
+	utils.PrintInfo("Advanced performance settings:")
+
+	config.Backup.ChunkSize = utils.PromptString("Chunk size for streaming operations", "64MB")
+	config.Backup.MemoryLimit = utils.PromptString("Memory limit for large files", "512MB")
+	config.Backup.NetworkTimeout = utils.PromptInt("Network timeout (seconds)", 300, 30, 3600)
+	config.Backup.RetryAttempts = utils.PromptInt("Retry attempts for failed uploads", 3, 0, 10)
+	config.Backup.RetryDelay = utils.PromptInt("Delay between retries (seconds)", 5, 1, 60)
 
 	// Skip patterns
 	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, etc.)?", true) {

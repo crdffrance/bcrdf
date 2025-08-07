@@ -58,11 +58,18 @@ func NewClient(accessKey, secretKey, region, endpoint, bucket string) (*Client, 
 	// Créer le client S3
 	s3Client := s3.New(sess)
 
-	// Créer l'uploader
-	uploader := s3manager.NewUploader(sess)
+	// Créer l'uploader avec optimisations de performance
+	uploader := s3manager.NewUploader(sess, func(u *s3manager.Uploader) {
+		u.PartSize = 64 * 1024 * 1024 // 64MB parts pour meilleure performance
+		u.Concurrency = 10            // 10 uploads parallèles
+		u.LeavePartsOnError = false   // Nettoyer en cas d'erreur
+	})
 
-	// Créer le downloader
-	downloader := s3manager.NewDownloader(sess)
+	// Créer le downloader avec optimisations de performance
+	downloader := s3manager.NewDownloader(sess, func(d *s3manager.Downloader) {
+		d.PartSize = 64 * 1024 * 1024 // 64MB parts
+		d.Concurrency = 10            // 10 downloads parallèles
+	})
 
 	return &Client{
 		s3Client:   s3Client,

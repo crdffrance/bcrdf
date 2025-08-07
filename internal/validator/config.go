@@ -531,12 +531,14 @@ func configureBackupInteractive(config *utils.Config) error {
 	config.Backup.RetryDelay = utils.PromptInt("Delay between retries (seconds)", 5, 1, 60)
 
 	// Skip patterns
-	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, etc.)?", true) {
+	if utils.PromptYesNo("Use recommended skip patterns (temporary files, caches, archives, etc.)?", true) {
 		config.Backup.SkipPatterns = []string{
 			"*.tmp", "*.cache", "*.log", ".DS_Store", "Thumbs.db",
 			"*.swp", "*.swo", "node_modules/", ".git/", "__pycache__/",
+			"*.zip", "*.tar.gz", "*.rar", "*.7z", "*.iso",
+			"*.vmdk", "*.vdi", "*.qcow2", "*.raw",
 		}
-		utils.PrintSuccess("Skip patterns configured")
+		utils.PrintSuccess("Extended skip patterns configured (includes archives and disk images)")
 	}
 
 	return nil

@@ -86,32 +86,65 @@ func LoadConfig(configFile string) (*Config, error) {
 func createDefaultConfig(configFile string) (*Config, error) {
 	Debug("Création d'un fichier de configuration par défaut: %s", configFile)
 
-	defaultConfig := `# Configuration BCRDF
+	defaultConfig := `# BCRDF Configuration - Optimized for Performance
 storage:
   type: "s3"
-  bucket: "mon-bucket-sauvegarde"
+  bucket: "my-backup-bucket"
   region: "eu-west-3"
   endpoint: "https://s3.eu-west-3.amazonaws.com"
-  access_key: ""
-  secret_key: ""
+  access_key: "YOUR_ACCESS_KEY"
+  secret_key: "YOUR_SECRET_KEY"
 
 backup:
-  encryption_key: "your-encryption-key-here"
+  encryption_key: "your-encryption-key-here"  # Generate with: bcrdf init --interactive
   encryption_algo: "aes-256-gcm"  # Options: "aes-256-gcm", "xchacha20-poly1305"
-  compression_level: 3
-  max_workers: 10
+  compression_level: 3  # GZIP level (1-9)
+  max_workers: 32  # Number of parallel workers (optimized for performance)
+  checksum_mode: "fast"  # Options: "full" (slow, secure), "fast" (recommended), "metadata" (fastest)
+  buffer_size: "64MB"  # Buffer size for I/O operations
+  batch_size: 50  # Number of small files to batch together
+  batch_size_limit: "10MB"  # Maximum size for batch uploads
+  
+  # Advanced performance optimizations
+  chunk_size: "64MB"  # Chunk size for streaming compression/decompression
+  memory_limit: "512MB"  # Memory limit for processing large files
+  network_timeout: 300  # Network timeout in seconds (5 minutes)
+  retry_attempts: 3  # Number of retry attempts for failed uploads
+  retry_delay: 5  # Delay between retries in seconds
+  
+  skip_patterns:  # Patterns to skip during backup (performance optimization)
+    - "*.tmp"
+    - "*.cache"
+    - "*.log"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.swp"
+    - "*.swo"
+    - "node_modules/"
+    - ".git/"
+    - "__pycache__/"
+    - "*.zip"
+    - "*.tar.gz"
+    - "*.rar"
+    - "*.7z"
+    - "*.iso"
+    - "*.vmdk"
+    - "*.vdi"
+    - "*.qcow2"
+    - "*.raw"
 
 retention:
-  days: 30
-  max_backups: 10
+  days: 30  # Retention period in days
+  max_backups: 10  # Maximum number of backups
 `
 
 	if err := os.WriteFile(configFile, []byte(defaultConfig), 0600); err != nil {
 		return nil, fmt.Errorf("error creating configuration file: %w", err)
 	}
 
-	Info("Fichier de configuration créé: %s", configFile)
-	Warn("Veuillez configurer vos paramètres S3 et votre clé de chiffrement")
+	Info("Configuration file created: %s", configFile)
+	Warn("Please configure your S3 parameters and encryption key")
+	Info("For optimal setup, run: bcrdf init --interactive")
 
 	var config Config
 	viper.SetConfigFile(configFile)
@@ -247,6 +280,11 @@ func WriteConfig(config *Config, configFile string) error {
 	viper.Set("backup.batch_size", config.Backup.BatchSize)
 	viper.Set("backup.batch_size_limit", config.Backup.BatchSizeLimit)
 	viper.Set("backup.skip_patterns", config.Backup.SkipPatterns)
+	viper.Set("backup.chunk_size", config.Backup.ChunkSize)
+	viper.Set("backup.memory_limit", config.Backup.MemoryLimit)
+	viper.Set("backup.network_timeout", config.Backup.NetworkTimeout)
+	viper.Set("backup.retry_attempts", config.Backup.RetryAttempts)
+	viper.Set("backup.retry_delay", config.Backup.RetryDelay)
 
 	viper.Set("retention.days", config.Retention.Days)
 	viper.Set("retention.max_backups", config.Retention.MaxBackups)

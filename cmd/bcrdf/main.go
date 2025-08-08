@@ -597,7 +597,19 @@ func runUpdate(force, verbose bool) error {
 	}
 
 	if downloadURL == "" {
+		if verbose {
+			utils.Info("Available assets:")
+			for _, asset := range release.Assets {
+				utils.Info("   - %s", asset.Name)
+			}
+			utils.Info("Looking for: %s", assetName)
+		}
 		return fmt.Errorf("no compatible binary found for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	if verbose {
+		utils.Info("Found binary: %s", assetName)
+		utils.Info("Download URL: %s", downloadURL)
 	}
 
 	// Download the update
@@ -609,6 +621,11 @@ func runUpdate(force, verbose bool) error {
 
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("error downloading binary: %s", resp.Status)
+	}
+
+	if verbose {
+		utils.Info("Download successful, status: %s", resp.Status)
+		utils.Info("Content-Length: %s", resp.Header.Get("Content-Length"))
 	}
 
 	// Get current executable path
@@ -641,11 +658,19 @@ func runUpdate(force, verbose bool) error {
 		return fmt.Errorf("error backing up current binary: %w", err)
 	}
 
+	if verbose {
+		utils.Info("Backup created: %s", backupPath)
+	}
+
 	// Install new binary
 	if err := os.Rename(tmpFile.Name(), execPath); err != nil {
 		// Restore backup on error
 		os.Rename(backupPath, execPath)
 		return fmt.Errorf("error installing update: %w", err)
+	}
+
+	if verbose {
+		utils.Info("New binary installed: %s", execPath)
 	}
 
 	if verbose {

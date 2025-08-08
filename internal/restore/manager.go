@@ -451,6 +451,14 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 	var completedMutex sync.Mutex
 
 	for i, file := range backupIndex.Files {
+		// Ignorer les fichiers avec des chemins vides ou des clés de stockage vides
+		if file.Path == "" || file.StorageKey == "" {
+			if verbose {
+				utils.Warn("Skipping file with empty path or storage key: %s", file.Path)
+			}
+			continue
+		}
+
 		wg.Add(1)
 		go func(f index.FileEntry, index int) {
 			defer wg.Done()
@@ -511,6 +519,12 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 
 // restoreSingleFile restaure un seul fichier
 func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationPath string) error {
+	// Vérifier que la clé de stockage n'est pas vide
+	if file.StorageKey == "" {
+		utils.Warn("Skipping file with empty storage key: %s", file.Path)
+		return nil
+	}
+
 	// Vérifier si c'est un fichier chunké en essayant de télécharger les métadonnées
 	metadataKey := fmt.Sprintf("%s.metadata", file.StorageKey)
 	_, err := m.storageClient.Download(metadataKey)

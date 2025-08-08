@@ -473,8 +473,8 @@ func showUpdateInfo(currentVersion, latestVersion string, verbose bool) {
 		utils.Info("📊 Update Information:")
 		utils.Info("   Current version: %s", currentVersion)
 		utils.Info("   Latest version: %s", latestVersion)
-		utils.Info("   Repository: https://github.com/crdffrance/bcrdf")
-		utils.Info("   Releases: https://github.com/crdffrance/bcrdf/releases")
+		utils.Info("   Update server: https://static.crdf.fr/bcrdf/")
+		utils.Info("   Latest info: https://static.crdf.fr/bcrdf/latest.json")
 	} else {
 		utils.ProgressInfo(fmt.Sprintf("📊 Current: %s | Latest: %s", currentVersion, latestVersion))
 	}
@@ -494,7 +494,7 @@ func runUpdate(force, verbose bool) error {
 	}
 
 	// GitHub API URL for latest release
-	apiURL := "https://api.github.com/repos/crdffrance/bcrdf/releases/latest"
+	apiURL := "https://static.crdf.fr/bcrdf/latest.json"
 	
 	// Get current version
 	currentVersion := Version
@@ -521,7 +521,7 @@ func runUpdate(force, verbose bool) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		return fmt.Errorf("repository not found or no releases available. Please check: https://github.com/crdffrance/bcrdf")
+		return fmt.Errorf("update server not available. Please check: https://static.crdf.fr/bcrdf/")
 	}
 	
 	if resp.StatusCode != 200 {
@@ -529,10 +529,10 @@ func runUpdate(force, verbose bool) error {
 	}
 
 	var release struct {
-		TagName string `json:"tag_name"`
+		Version string `json:"version"`
 		Assets  []struct {
 			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
+			URL  string `json:"url"`
 		} `json:"assets"`
 	}
 
@@ -540,7 +540,7 @@ func runUpdate(force, verbose bool) error {
 		return fmt.Errorf("error parsing release info: %w", err)
 	}
 
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	latestVersion := strings.TrimPrefix(release.Version, "v")
 	
 	if verbose {
 		utils.Info("Latest version: %s", latestVersion)

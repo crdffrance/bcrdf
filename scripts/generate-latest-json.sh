@@ -13,9 +13,11 @@ echo "Generating latest.json for version $VERSION..."
 
 # Vérifier que les binaires existent
 BINARIES=(
-    "build/bcrdf-linux-x64"
-    "build/bcrdf-darwin-x64" 
-    "build/bcrdf-windows-x64.exe"
+    "dist/bcrdf-linux-x64"
+    "dist/bcrdf-linux-arm64"
+    "dist/bcrdf-darwin-x64" 
+    "dist/bcrdf-darwin-arm64"
+    "dist/bcrdf-windows-x64.exe"
 )
 
 for binary in "${BINARIES[@]}"; do
@@ -27,14 +29,18 @@ for binary in "${BINARIES[@]}"; do
 done
 
 # Calculer les checksums
-LINUX_CHECKSUM=$(sha256sum build/bcrdf-linux-x64 | cut -d' ' -f1)
-DARWIN_CHECKSUM=$(sha256sum build/bcrdf-darwin-x64 | cut -d' ' -f1)
-WINDOWS_CHECKSUM=$(sha256sum build/bcrdf-windows-x64.exe | cut -d' ' -f1)
+LINUX_X64_CHECKSUM=$(sha256sum dist/bcrdf-linux-x64 | cut -d' ' -f1)
+LINUX_ARM64_CHECKSUM=$(sha256sum dist/bcrdf-linux-arm64 | cut -d' ' -f1)
+DARWIN_X64_CHECKSUM=$(sha256sum dist/bcrdf-darwin-x64 | cut -d' ' -f1)
+DARWIN_ARM64_CHECKSUM=$(sha256sum dist/bcrdf-darwin-arm64 | cut -d' ' -f1)
+WINDOWS_CHECKSUM=$(sha256sum dist/bcrdf-windows-x64.exe | cut -d' ' -f1)
 
-# Obtenir les tailles
-LINUX_SIZE=$(stat -c%s build/bcrdf-linux-x64)
-DARWIN_SIZE=$(stat -c%s build/bcrdf-darwin-x64)
-WINDOWS_SIZE=$(stat -c%s build/bcrdf-windows-x64.exe)
+# Obtenir les tailles (compatible macOS et Linux)
+LINUX_X64_SIZE=$(stat -f%z dist/bcrdf-linux-x64 2>/dev/null || stat -c%s dist/bcrdf-linux-x64)
+LINUX_ARM64_SIZE=$(stat -f%z dist/bcrdf-linux-arm64 2>/dev/null || stat -c%s dist/bcrdf-linux-arm64)
+DARWIN_X64_SIZE=$(stat -f%z dist/bcrdf-darwin-x64 2>/dev/null || stat -c%s dist/bcrdf-darwin-x64)
+DARWIN_ARM64_SIZE=$(stat -f%z dist/bcrdf-darwin-arm64 2>/dev/null || stat -c%s dist/bcrdf-darwin-arm64)
+WINDOWS_SIZE=$(stat -f%z dist/bcrdf-windows-x64.exe 2>/dev/null || stat -c%s dist/bcrdf-windows-x64.exe)
 
 # Générer le JSON
 cat > latest.json << EOF
@@ -46,14 +52,26 @@ cat > latest.json << EOF
     {
       "name": "bcrdf-linux-x64",
       "url": "https://static.crdf.fr/bcrdf/bcrdf-linux-x64",
-      "size": $LINUX_SIZE,
-      "checksum": "sha256:$LINUX_CHECKSUM"
+      "size": $LINUX_X64_SIZE,
+      "checksum": "sha256:$LINUX_X64_CHECKSUM"
+    },
+    {
+      "name": "bcrdf-linux-arm64",
+      "url": "https://static.crdf.fr/bcrdf/bcrdf-linux-arm64",
+      "size": $LINUX_ARM64_SIZE,
+      "checksum": "sha256:$LINUX_ARM64_CHECKSUM"
     },
     {
       "name": "bcrdf-darwin-x64",
       "url": "https://static.crdf.fr/bcrdf/bcrdf-darwin-x64",
-      "size": $DARWIN_SIZE,
-      "checksum": "sha256:$DARWIN_CHECKSUM"
+      "size": $DARWIN_X64_SIZE,
+      "checksum": "sha256:$DARWIN_X64_CHECKSUM"
+    },
+    {
+      "name": "bcrdf-darwin-arm64",
+      "url": "https://static.crdf.fr/bcrdf/bcrdf-darwin-arm64",
+      "size": $DARWIN_ARM64_SIZE,
+      "checksum": "sha256:$DARWIN_ARM64_CHECKSUM"
     },
     {
       "name": "bcrdf-windows-x64.exe",
@@ -68,8 +86,10 @@ EOF
 echo "✅ Generated latest.json:"
 echo "   Version: $VERSION"
 echo "   Release date: $RELEASE_DATE"
-echo "   Linux: $LINUX_SIZE bytes"
-echo "   macOS: $DARWIN_SIZE bytes" 
+echo "   Linux x64: $LINUX_X64_SIZE bytes"
+echo "   Linux arm64: $LINUX_ARM64_SIZE bytes"
+echo "   macOS x64: $DARWIN_X64_SIZE bytes"
+echo "   macOS arm64: $DARWIN_ARM64_SIZE bytes" 
 echo "   Windows: $WINDOWS_SIZE bytes"
 
 echo ""

@@ -570,13 +570,21 @@ func runUpdate(force, verbose bool) error {
 	var assetName string
 	switch runtime.GOOS {
 	case "linux":
-		assetName = fmt.Sprintf("bcrdf-linux-x64")
+		if runtime.GOARCH == "arm64" {
+			assetName = "bcrdf-linux-arm64"
+		} else {
+			assetName = "bcrdf-linux-x64"
+		}
 	case "darwin":
-		assetName = fmt.Sprintf("bcrdf-darwin-x64")
+		if runtime.GOARCH == "arm64" {
+			assetName = "bcrdf-darwin-arm64"
+		} else {
+			assetName = "bcrdf-darwin-x64"
+		}
 	case "windows":
-		assetName = fmt.Sprintf("bcrdf-windows-x64.exe")
+		assetName = "bcrdf-windows-x64.exe"
 	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+		return fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
 	// Find the correct asset

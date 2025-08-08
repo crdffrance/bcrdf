@@ -28,7 +28,7 @@ var (
 	verbose    bool
 	// Version information
 	Version   = "2.4.0"
-	BuildTime = "2024-08-08"
+	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )
 
@@ -388,35 +388,11 @@ func runTestConfig(configPath string, verbose bool) error {
 	return nil
 }
 
-// showVersion displays version information and optimization features
+// showVersion displays version information
 func showVersion() {
-	fmt.Printf("🚀 BCRDF v%s\n", Version)
+	fmt.Printf("🚀 BCRDF %s\n", Version)
 	fmt.Printf("📦 Build: %s\n", BuildTime)
 	fmt.Printf("🔧 Go: %s\n", GoVersion)
-	fmt.Printf("\n")
-	fmt.Printf("⚡ Performance Optimizations:\n")
-	fmt.Printf("  ✅ Phase 1: Cache de checksums (+30-50%%)\n")
-	fmt.Printf("  ✅ Phase 1: Connection pooling avancé (+15-25%%)\n")
-	fmt.Printf("  ✅ Phase 1: Compression adaptative (+10-20%%)\n")
-	fmt.Printf("  ✅ Max workers: 32 (configurable)\n")
-	fmt.Printf("  ✅ Adaptive compression levels\n")
-	fmt.Printf("  ✅ Extended skip patterns\n")
-	fmt.Printf("\n")
-	fmt.Printf("🔐 Security Features:\n")
-	fmt.Printf("  ✅ AES-256-GCM encryption\n")
-	fmt.Printf("  ✅ XChaCha20-Poly1305 encryption\n")
-	fmt.Printf("  ✅ SHA256 checksums\n")
-	fmt.Printf("\n")
-	fmt.Printf("💾 Storage Support:\n")
-	fmt.Printf("  ✅ S3 compatible storage\n")
-	fmt.Printf("  ✅ WebDAV storage\n")
-	fmt.Printf("  ✅ Incremental backups\n")
-	fmt.Printf("  ✅ Retention policies\n")
-	fmt.Printf("\n")
-	fmt.Printf("📊 Expected Performance:\n")
-	fmt.Printf("  🚀 55-95%% faster than baseline\n")
-	fmt.Printf("  💾 15-25%% less memory usage\n")
-	fmt.Printf("  🌐 10-20%% fewer network timeouts\n")
 }
 
 // runRetention executes retention management commands

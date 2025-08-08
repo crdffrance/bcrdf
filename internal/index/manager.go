@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"bcrdf/internal/crypto"
 	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
@@ -19,6 +20,7 @@ type Manager struct {
 	config        *utils.Config
 	storageClient storage.Client
 	checksumCache *ChecksumCache
+	encryptor     *crypto.EncryptorV2
 }
 
 // NewManager crée un nouveau gestionnaire d'index
@@ -27,6 +29,36 @@ func NewManager(configFile string) *Manager {
 		configFile:    configFile,
 		checksumCache: NewChecksumCache(),
 	}
+}
+
+// initializeEncryptor initialise le chiffreur si nécessaire
+func (m *Manager) initializeEncryptor() error {
+	if m.encryptor != nil {
+		return nil
+	}
+
+	// Charger la configuration si nécessaire
+	if m.config == nil {
+		config, err := utils.LoadConfig(m.configFile)
+		if err != nil {
+			return err
+		}
+		m.config = config
+	}
+
+	// Initialiser le chiffreur avec l'algorithme configuré
+	algorithm := crypto.EncryptionAlgorithm(m.config.Backup.EncryptionAlgo)
+	if algorithm == "" {
+		algorithm = crypto.AES256GCM // Valeur par défaut
+	}
+
+	encryptor, err := crypto.NewEncryptorV2(m.config.Backup.EncryptionKey, algorithm)
+	if err != nil {
+		return fmt.Errorf("error during l'initialisation du chiffreur pour les index: %w", err)
+	}
+	m.encryptor = encryptor
+
+	return nil
 }
 
 // CreateIndex crée un nouvel index pour un répertoire
@@ -97,6 +129,11 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 		m.storageClient = storageClient
 	}
 
+	// Initialiser le chiffreur si nécessaire
+	if err := m.initializeEncryptor(); err != nil {
+		return nil, fmt.Errorf("error initializing encryptor for index loading: %w", err)
+	}
+
 	// Construire le chemin de l'index
 	indexKey := fmt.Sprintf("indexes/%s.json", backupID)
 
@@ -106,8 +143,14 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 		return nil, fmt.Errorf("error loading index: %w", err)
 	}
 
+	// Déchiffrer les données
+	decryptedData, err := m.encryptor.Decrypt(data)
+	if err != nil {
+		return nil, fmt.Errorf("error decrypting index: %w", err)
+	}
+
 	var index BackupIndex
-	if err := json.Unmarshal(data, &index); err != nil {
+	if err := json.Unmarshal(decryptedData, &index); err != nil {
 		return nil, fmt.Errorf("error decoding index: %w", err)
 	}
 
@@ -134,15 +177,26 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 		m.storageClient = storageClient
 	}
 
+	// Initialiser le chiffreur si nécessaire
+	if err := m.initializeEncryptor(); err != nil {
+		return fmt.Errorf("error initializing encryptor for index saving: %w", err)
+	}
+
 	// Sérialiser l'index
 	data, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error serializing index: %w", err)
 	}
 
+	// Chiffrer les données
+	encryptedData, err := m.encryptor.Encrypt(data)
+	if err != nil {
+		return fmt.Errorf("error encrypting index: %w", err)
+	}
+
 	// Sauvegarder dans S3
 	indexKey := fmt.Sprintf("indexes/%s.json", index.BackupID)
-	if err := m.storageClient.Upload(indexKey, data); err != nil {
+	if err := m.storageClient.Upload(indexKey, encryptedData); err != nil {
 		return fmt.Errorf("error saving index: %w", err)
 	}
 

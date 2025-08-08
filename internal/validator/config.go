@@ -302,6 +302,7 @@ func GenerateConfigWithType(outputPath, storageType string) error {
 		config.Storage.Endpoint = "https://s3.eu-west-3.amazonaws.com"
 		config.Storage.AccessKey = "YOUR_ACCESS_KEY"
 		config.Storage.SecretKey = "YOUR_SECRET_KEY"
+		config.Storage.StorageClass = "STANDARD" // S3 storage class (STANDARD, GLACIER, DEEP_ARCHIVE, INTELLIGENT_TIERING)
 	case "webdav":
 		config.Storage.Endpoint = "https://your-server.com/remote.php/dav/files/username/"
 		config.Storage.Username = "YOUR_USERNAME"
@@ -458,6 +459,26 @@ func configureS3Interactive(config *utils.Config) error {
 	config.Storage.Bucket = utils.PromptString("Bucket name", "my-backup-bucket")
 	config.Storage.AccessKey = utils.PromptString("Access Key", "")
 	config.Storage.SecretKey = utils.PromptPassword("Secret Key")
+
+	// Configuration de la classe de stockage S3
+	storageClasses := []string{
+		"STANDARD (default, immediate access)",
+		"GLACIER (cost-effective, 3-5 hours retrieval)",
+		"DEEP_ARCHIVE (lowest cost, 12-48 hours retrieval)",
+		"INTELLIGENT_TIERING (automatic optimization)",
+	}
+	storageClassChoice := utils.PromptChoice("Choose S3 storage class:", storageClasses, 0)
+
+	switch storageClassChoice {
+	case 0:
+		config.Storage.StorageClass = "STANDARD"
+	case 1:
+		config.Storage.StorageClass = "GLACIER"
+	case 2:
+		config.Storage.StorageClass = "DEEP_ARCHIVE"
+	case 3:
+		config.Storage.StorageClass = "INTELLIGENT_TIERING"
+	}
 
 	return nil
 }

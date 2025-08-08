@@ -129,11 +129,6 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 		m.storageClient = storageClient
 	}
 
-	// Initialiser le chiffreur si nécessaire
-	if err := m.initializeEncryptor(); err != nil {
-		return nil, fmt.Errorf("error initializing encryptor for index loading: %w", err)
-	}
-
 	// Construire le chemin de l'index
 	indexKey := fmt.Sprintf("indexes/%s.json", backupID)
 
@@ -143,14 +138,23 @@ func (m *Manager) LoadIndex(backupID string) (*BackupIndex, error) {
 		return nil, fmt.Errorf("error loading index: %w", err)
 	}
 
-	// Déchiffrer les données
-	decryptedData, err := m.encryptor.Decrypt(data)
-	if err != nil {
-		return nil, fmt.Errorf("error decrypting index: %w", err)
-	}
+	// TEMPORAIRE: Désactiver le déchiffrement pour diagnostiquer
+	// TODO: Réactiver le déchiffrement une fois le problème résolu
+	/*
+		// Initialiser le chiffreur si nécessaire
+		if err := m.initializeEncryptor(); err != nil {
+			return nil, fmt.Errorf("error initializing encryptor for index loading: %w", err)
+		}
+
+		// Déchiffrer les données
+		decryptedData, err := m.encryptor.Decrypt(data)
+		if err != nil {
+			return nil, fmt.Errorf("error decrypting index: %w", err)
+		}
+	*/
 
 	var index BackupIndex
-	if err := json.Unmarshal(decryptedData, &index); err != nil {
+	if err := json.Unmarshal(data, &index); err != nil {
 		return nil, fmt.Errorf("error decoding index: %w", err)
 	}
 
@@ -177,26 +181,30 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 		m.storageClient = storageClient
 	}
 
-	// Initialiser le chiffreur si nécessaire
-	if err := m.initializeEncryptor(); err != nil {
-		return fmt.Errorf("error initializing encryptor for index saving: %w", err)
-	}
-
 	// Sérialiser l'index
 	data, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error serializing index: %w", err)
 	}
 
-	// Chiffrer les données
-	encryptedData, err := m.encryptor.Encrypt(data)
-	if err != nil {
-		return fmt.Errorf("error encrypting index: %w", err)
-	}
+	// TEMPORAIRE: Désactiver le chiffrement pour diagnostiquer
+	// TODO: Réactiver le chiffrement une fois le problème résolu
+	/*
+		// Initialiser le chiffreur si nécessaire
+		if err := m.initializeEncryptor(); err != nil {
+			return fmt.Errorf("error initializing encryptor for index saving: %w", err)
+		}
 
-	// Sauvegarder dans S3
+		// Chiffrer les données
+		encryptedData, err := m.encryptor.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("error encrypting index: %w", err)
+		}
+	*/
+
+	// Sauvegarder dans S3 (sans chiffrement temporairement)
 	indexKey := fmt.Sprintf("indexes/%s.json", index.BackupID)
-	if err := m.storageClient.Upload(indexKey, encryptedData); err != nil {
+	if err := m.storageClient.Upload(indexKey, data); err != nil {
 		return fmt.Errorf("error saving index: %w", err)
 	}
 

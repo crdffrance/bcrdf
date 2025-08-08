@@ -1,13 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -224,7 +220,7 @@ Key features:
 		Short: "Initialize BCRDF configuration",
 		Long:  "Generates a configuration file and tests connection parameters",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			configPath := "config.yaml"
+			configPath := configFile
 			if len(args) > 0 {
 				configPath = args[0]
 			}
@@ -260,17 +256,7 @@ Key features:
 	retentionCmd.Flags().BoolP("info", "i", false, "Show retention information")
 	retentionCmd.Flags().BoolP("apply", "a", false, "Apply retention policies")
 
-	// Update command
-	var updateCmd = &cobra.Command{
-		Use:   "update",
-		Short: "Update BCRDF to the latest version",
-		Long:  "Checks for updates and downloads the latest version of BCRDF",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			return runUpdate(force, verbose)
-		},
-	}
-	updateCmd.Flags().BoolP("force", "f", false, "Force update even if already up to date")
+
 
 	// Version command
 	versionCmd := &cobra.Command{
@@ -290,7 +276,6 @@ Key features:
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(retentionCmd)
-	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -426,235 +411,4 @@ func runRetention(configPath string, info, apply, verbose bool) error {
 	return nil
 }
 
-// checkNetworkConnectivity vérifie la connectivité réseau
-func checkNetworkConnectivity() error {
-	// Test de connectivité avec un timeout court
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	
-	// Test avec un service fiable
-	resp, err := client.Get("https://httpbin.org/status/200")
-	if err != nil {
-		return fmt.Errorf("no internet connection: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	return nil
-}
 
-// showUpdateInfo affiche les informations de mise à jour
-func showUpdateInfo(currentVersion, latestVersion string, verbose bool) {
-	if verbose {
-		utils.Info("📊 Update Information:")
-		utils.Info("   Current version: %s", currentVersion)
-		utils.Info("   Latest version: %s", latestVersion)
-		utils.Info("   Update server: https://static.crdf.fr/bcrdf/")
-		utils.Info("   Latest info: https://static.crdf.fr/bcrdf/latest.json")
-	} else {
-		utils.ProgressInfo(fmt.Sprintf("📊 Current: %s | Latest: %s", currentVersion, latestVersion))
-	}
-}
-
-// runUpdate checks for updates and downloads the latest version
-func runUpdate(force, verbose bool) error {
-	if verbose {
-		utils.Info("🔄 Checking for BCRDF updates...")
-	} else {
-		utils.ProgressStep("🔄 Checking for updates...")
-	}
-
-	// Check network connectivity
-	if err := checkNetworkConnectivity(); err != nil {
-		return fmt.Errorf("network error: %w", err)
-	}
-
-	// GitHub API URL for latest release
-	apiURL := "https://static.crdf.fr/bcrdf/latest.json"
-	
-	// Get current version
-	currentVersion := Version
-	
-	// Allow updates even for development versions
-	if strings.Contains(currentVersion, "dirty") || strings.Contains(currentVersion, "dev") {
-		if verbose {
-			utils.Info("🛠️  Development version detected - updates still allowed")
-		} else {
-			utils.ProgressInfo("🛠️  Development version - updates allowed")
-		}
-	}
-	
-	if verbose {
-		utils.Info("Current version: %s", currentVersion)
-	}
-
-	// Fetch latest release info
-	resp, err := http.Get(apiURL)
-	if err != nil {
-		return fmt.Errorf("error checking for updates: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 404 {
-		return fmt.Errorf("update server not available. Please check: https://static.crdf.fr/bcrdf/")
-	}
-	
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("error fetching release info: %s", resp.Status)
-	}
-
-	var release struct {
-		Version string `json:"version"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"assets"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return fmt.Errorf("error parsing release info: %w", err)
-	}
-
-	latestVersion := strings.TrimPrefix(release.Version, "v")
-	
-	if verbose {
-		utils.Info("Latest version: %s", latestVersion)
-	}
-
-	// Show update information
-	showUpdateInfo(currentVersion, latestVersion, verbose)
-
-	// Check if update is needed
-	if currentVersion == latestVersion && !force {
-		if verbose {
-			utils.Info("✅ Already up to date!")
-		} else {
-			utils.ProgressSuccess("✅ Already up to date!")
-		}
-		return nil
-	}
-
-	if verbose {
-		utils.Info("🔄 New version available: %s", latestVersion)
-		utils.Info("📥 Downloading update...")
-	} else {
-		utils.ProgressStep(fmt.Sprintf("📥 Downloading v%s...", latestVersion))
-	}
-
-	// Determine platform and architecture
-	var assetName string
-	switch runtime.GOOS {
-	case "linux":
-		if runtime.GOARCH == "arm64" {
-			assetName = "bcrdf-linux-arm64"
-		} else {
-			assetName = "bcrdf-linux-x64"
-		}
-	case "darwin":
-		if runtime.GOARCH == "arm64" {
-			assetName = "bcrdf-darwin-arm64"
-		} else {
-			assetName = "bcrdf-darwin-x64"
-		}
-	case "windows":
-		assetName = "bcrdf-windows-x64.exe"
-	default:
-		return fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
-	// Find the correct asset
-	var downloadURL string
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, assetName) {
-			downloadURL = asset.URL
-			break
-		}
-	}
-
-	if downloadURL == "" {
-		if verbose {
-			utils.Info("Available assets:")
-			for _, asset := range release.Assets {
-				utils.Info("   - %s", asset.Name)
-			}
-			utils.Info("Looking for: %s", assetName)
-		}
-		return fmt.Errorf("no compatible binary found for %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
-	if verbose {
-		utils.Info("Found binary: %s", assetName)
-		utils.Info("Download URL: %s", downloadURL)
-	}
-
-	// Download the update
-	resp, err = http.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("error downloading update: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("error downloading binary: %s", resp.Status)
-	}
-
-	if verbose {
-		utils.Info("Download successful, status: %s", resp.Status)
-		utils.Info("Content-Length: %s", resp.Header.Get("Content-Length"))
-	}
-
-	// Get current executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("error getting executable path: %w", err)
-	}
-
-	// Create temporary file
-	tmpFile, err := os.CreateTemp("", "bcrdf-update-*")
-	if err != nil {
-		return fmt.Errorf("error creating temp file: %w", err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	// Download to temp file
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		return fmt.Errorf("error saving update: %w", err)
-	}
-	tmpFile.Close()
-
-	// Make temp file executable
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
-		return fmt.Errorf("error setting permissions: %w", err)
-	}
-
-	// Backup current binary
-	backupPath := execPath + ".backup"
-	if err := os.Rename(execPath, backupPath); err != nil {
-		return fmt.Errorf("error backing up current binary: %w", err)
-	}
-
-	if verbose {
-		utils.Info("Backup created: %s", backupPath)
-	}
-
-	// Install new binary
-	if err := os.Rename(tmpFile.Name(), execPath); err != nil {
-		// Restore backup on error
-		os.Rename(backupPath, execPath)
-		return fmt.Errorf("error installing update: %w", err)
-	}
-
-	if verbose {
-		utils.Info("New binary installed: %s", execPath)
-	}
-
-	if verbose {
-		utils.Info("✅ Update completed successfully!")
-		utils.Info("🔄 Restart BCRDF to use the new version")
-	} else {
-		utils.ProgressSuccess("✅ Update completed!")
-		utils.ProgressInfo("Restart BCRDF to use the new version")
-	}
-
-	return nil
-}

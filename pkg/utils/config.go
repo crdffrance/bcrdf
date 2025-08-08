@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // Config représente la configuration de l'application
@@ -271,45 +272,103 @@ func validateCommonConfig(config *Config) error {
 
 // WriteConfig écrit une configuration dans un fichier YAML
 func WriteConfig(config *Config, configFile string) error {
-	viper.Reset()
+	// Créer une structure temporaire pour l'écriture YAML
+	type StorageConfig struct {
+		Type         string `yaml:"type"`
+		Bucket       string `yaml:"bucket"`
+		Region       string `yaml:"region"`
+		Endpoint     string `yaml:"endpoint"`
+		AccessKey    string `yaml:"access_key"`
+		SecretKey    string `yaml:"secret_key"`
+		StorageClass string `yaml:"storage_class"`
+		Username     string `yaml:"username"`
+		Password     string `yaml:"password"`
+	}
 
-	// Configurer viper pour écrire
-	viper.SetConfigFile(configFile)
-	viper.SetConfigType("yaml")
+	type BackupConfig struct {
+		EncryptionKey       string   `yaml:"encryption_key"`
+		EncryptionAlgo      string   `yaml:"encryption_algo"`
+		CompressionLevel    int      `yaml:"compression_level"`
+		MaxWorkers          int      `yaml:"max_workers"`
+		ChecksumMode        string   `yaml:"checksum_mode"`
+		BufferSize          string   `yaml:"buffer_size"`
+		BatchSize           int      `yaml:"batch_size"`
+		BatchSizeLimit      string   `yaml:"batch_size_limit"`
+		SkipPatterns        []string `yaml:"skip_patterns"`
+		ChunkSize           string   `yaml:"chunk_size"`
+		MemoryLimit         string   `yaml:"memory_limit"`
+		NetworkTimeout      int      `yaml:"network_timeout"`
+		RetryAttempts       int      `yaml:"retry_attempts"`
+		RetryDelay          int      `yaml:"retry_delay"`
+		CacheEnabled        bool     `yaml:"cache_enabled"`
+		CacheMaxSize        int      `yaml:"cache_max_size"`
+		CacheMaxAge         int      `yaml:"cache_max_age"`
+		CompressionAdaptive bool     `yaml:"compression_adaptive"`
+		SortBySize          bool     `yaml:"sort_by_size"`
+		ChunkSizeLarge      string   `yaml:"chunk_size_large"`
+		LargeFileThreshold  string   `yaml:"large_file_threshold"`
+		UltraLargeThreshold string   `yaml:"ultra_large_threshold"`
+	}
 
-	// Définir les valeurs de configuration
-	viper.Set("storage.type", config.Storage.Type)
-	viper.Set("storage.bucket", config.Storage.Bucket)
-	viper.Set("storage.region", config.Storage.Region)
-	viper.Set("storage.endpoint", config.Storage.Endpoint)
-	viper.Set("storage.access_key", config.Storage.AccessKey)
-	viper.Set("storage.secret_key", config.Storage.SecretKey)
-	viper.Set("storage.username", config.Storage.Username)
-	viper.Set("storage.password", config.Storage.Password)
+	type RetentionConfig struct {
+		Days       int `yaml:"days"`
+		MaxBackups int `yaml:"max_backups"`
+	}
 
-	viper.Set("backup.encryption_key", config.Backup.EncryptionKey)
-	viper.Set("backup.encryption_algo", config.Backup.EncryptionAlgo)
-	viper.Set("backup.compression_level", config.Backup.CompressionLevel)
-	viper.Set("backup.max_workers", config.Backup.MaxWorkers)
-	viper.Set("backup.checksum_mode", config.Backup.ChecksumMode)
-	viper.Set("backup.buffer_size", config.Backup.BufferSize)
-	viper.Set("backup.batch_size", config.Backup.BatchSize)
-	viper.Set("backup.batch_size_limit", config.Backup.BatchSizeLimit)
-	viper.Set("backup.skip_patterns", config.Backup.SkipPatterns)
-	viper.Set("backup.chunk_size", config.Backup.ChunkSize)
-	viper.Set("backup.memory_limit", config.Backup.MemoryLimit)
-	viper.Set("backup.network_timeout", config.Backup.NetworkTimeout)
-	viper.Set("backup.retry_attempts", config.Backup.RetryAttempts)
-	viper.Set("backup.retry_delay", config.Backup.RetryDelay)
-	viper.Set("backup.cache_enabled", config.Backup.CacheEnabled)
-	viper.Set("backup.cache_max_size", config.Backup.CacheMaxSize)
-	viper.Set("backup.cache_max_age", config.Backup.CacheMaxAge)
-	viper.Set("backup.compression_adaptive", config.Backup.CompressionAdaptive)
-	viper.Set("backup.sort_by_size", config.Backup.SortBySize)
+	type FullConfig struct {
+		Storage   StorageConfig   `yaml:"storage"`
+		Backup    BackupConfig    `yaml:"backup"`
+		Retention RetentionConfig `yaml:"retention"`
+	}
 
-	viper.Set("retention.days", config.Retention.Days)
-	viper.Set("retention.max_backups", config.Retention.MaxBackups)
+	// Créer la configuration complète
+	fullConfig := FullConfig{
+		Storage: StorageConfig{
+			Type:         config.Storage.Type,
+			Bucket:       config.Storage.Bucket,
+			Region:       config.Storage.Region,
+			Endpoint:     config.Storage.Endpoint,
+			AccessKey:    config.Storage.AccessKey,
+			SecretKey:    config.Storage.SecretKey,
+			StorageClass: config.Storage.StorageClass,
+			Username:     config.Storage.Username,
+			Password:     config.Storage.Password,
+		},
+		Backup: BackupConfig{
+			EncryptionKey:       config.Backup.EncryptionKey,
+			EncryptionAlgo:      config.Backup.EncryptionAlgo,
+			CompressionLevel:    config.Backup.CompressionLevel,
+			MaxWorkers:          config.Backup.MaxWorkers,
+			ChecksumMode:        config.Backup.ChecksumMode,
+			BufferSize:          config.Backup.BufferSize,
+			BatchSize:           config.Backup.BatchSize,
+			BatchSizeLimit:      config.Backup.BatchSizeLimit,
+			SkipPatterns:        config.Backup.SkipPatterns,
+			ChunkSize:           config.Backup.ChunkSize,
+			MemoryLimit:         config.Backup.MemoryLimit,
+			NetworkTimeout:      config.Backup.NetworkTimeout,
+			RetryAttempts:       config.Backup.RetryAttempts,
+			RetryDelay:          config.Backup.RetryDelay,
+			CacheEnabled:        config.Backup.CacheEnabled,
+			CacheMaxSize:        config.Backup.CacheMaxSize,
+			CacheMaxAge:         config.Backup.CacheMaxAge,
+			CompressionAdaptive: config.Backup.CompressionAdaptive,
+			SortBySize:          config.Backup.SortBySize,
+			ChunkSizeLarge:      config.Backup.ChunkSizeLarge,
+			LargeFileThreshold:  config.Backup.LargeFileThreshold,
+			UltraLargeThreshold: config.Backup.UltraLargeThreshold,
+		},
+		Retention: RetentionConfig{
+			Days:       config.Retention.Days,
+			MaxBackups: config.Retention.MaxBackups,
+		},
+	}
 
-	// Écrire le fichier
-	return viper.WriteConfig()
+	// Écrire le fichier YAML
+	data, err := yaml.Marshal(fullConfig)
+	if err != nil {
+		return fmt.Errorf("error marshaling config: %w", err)
+	}
+
+	return os.WriteFile(configFile, data, 0600)
 }

@@ -82,7 +82,15 @@ func NewClient(accessKey, secretKey, region, endpoint, bucket string) (*Client, 
 
 // Upload upload un fichier vers S3
 func (c *Client) Upload(key string, data []byte) error {
+	return c.UploadWithStorageClass(key, data, "")
+}
+
+// UploadWithStorageClass upload un fichier vers S3 avec une classe de stockage spécifique
+func (c *Client) UploadWithStorageClass(key string, data []byte, storageClass string) error {
 	utils.Debug("Upload vers S3: %s/%s (%d bytes)", c.bucket, key, len(data))
+	if storageClass != "" {
+		utils.Debug("   Storage class: %s", storageClass)
+	}
 
 	// Créer un reader pour les données
 	reader := bytes.NewReader(data)
@@ -92,6 +100,11 @@ func (c *Client) Upload(key string, data []byte) error {
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(key),
 		Body:   reader,
+	}
+
+	// Ajouter la classe de stockage si spécifiée
+	if storageClass != "" {
+		params.StorageClass = aws.String(storageClass)
 	}
 
 	// Effectuer l'upload

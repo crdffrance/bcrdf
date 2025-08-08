@@ -1,0 +1,124 @@
+# Configuration BCRDF SANS CHUNKING
+# Traite tous les fichiers en une seule fois, même les gros fichiers
+# Idéal pour les serveurs avec beaucoup de RAM et une connexion rapide
+
+storage:
+  type: "s3"
+  bucket: "bcrdf"
+  region: "fr-par"
+  endpoint: "https://s3.fr-par.scw.cloud"
+  access_key: "SCW1M0G9HGMXR54XA46M"
+  secret_key: "c0daf30e-3c70-4894-ab1b-c0c7d041d267"
+
+backup:
+  # === CHIFFREMENT ===
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"
+  
+  # === OPTIMISATIONS CPU ===
+  max_workers: 2         # Peu de workers pour éviter la surcharge
+  compression_level: 1   # Compression rapide
+  checksum_mode: "metadata"  # Mode rapide
+  
+  # === BUFFERS OPTIMISÉS POUR FICHIERS COMPLETS ===
+  buffer_size: "64MB"    # Buffer plus grand pour les gros fichiers
+  batch_size: 3          # Peu de fichiers par batch
+  batch_size_limit: "10MB" # Limite plus grande
+  
+  # === CHUNKING DÉSACTIVÉ ===
+  chunk_size: "0"        # DÉSACTIVÉ - traite les fichiers complets
+  memory_limit: "512MB"  # Plus de mémoire pour les gros fichiers
+  chunk_size_large: "0"  # DÉSACTIVÉ
+  large_file_threshold: "0"      # DÉSACTIVÉ - tous les fichiers traités de la même façon
+  ultra_large_threshold: "0"     # DÉSACTIVÉ - pas de chunking
+  
+  # === RÉSEAU OPTIMISÉ ===
+  network_timeout: 300   # Timeout plus long pour les gros fichiers
+  retry_attempts: 3      # Plus de tentatives
+  retry_delay: 5         # Délai court entre tentatives
+  
+  # === OPTIMISATIONS ===
+  sort_by_size: true     # Traiter les petits fichiers en premier
+  compression_adaptive: true  # Ignore les fichiers déjà compressés
+  
+  # === FICHIERS À IGNORER (EXTENSIF) ===
+  skip_patterns:
+    # Fichiers système
+    - "*.tmp"
+    - "*.cache"
+    - "*.log"
+    - "*.temp"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.bak"
+    - "*.backup"
+    - "*.old"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+    
+    # Répertoires système
+    - ".git/"
+    - ".svn/"
+    - ".hg/"
+    - "node_modules/"
+    - ".npm/"
+    - ".cache/"
+    - "__pycache__/"
+    - ".pytest_cache/"
+    - ".coverage"
+    - ".tox/"
+    - ".venv/"
+    - "venv/"
+    - "env/"
+    - ".env/"
+    
+    # Fichiers compressés
+    - "*.zip"
+    - "*.tar.gz"
+    - "*.tar.bz2"
+    - "*.rar"
+    - "*.7z"
+    - "*.bz2"
+    - "*.xz"
+    - "*.gz"
+    
+    # Images disque
+    - "*.iso"
+    - "*.vmdk"
+    - "*.vdi"
+    - "*.qcow2"
+    - "*.raw"
+    - "*.img"
+    
+    # Médias
+    - "*.mp4"
+    - "*.avi"
+    - "*.mkv"
+    - "*.mov"
+    - "*.wmv"
+    - "*.flv"
+    - "*.webm"
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.png"
+    - "*.gif"
+    - "*.bmp"
+    - "*.tiff"
+    - "*.pdf"
+    
+    # Logs système (CRITIQUE)
+    - "/var/log/*"
+    - "/tmp/*"
+    - "/var/tmp/*"
+    - "/var/cache/*"
+    - "/var/spool/*"
+    - "/proc/*"
+    - "/sys/*"
+    - "/dev/*"
+    - "/run/*"
+
+retention:
+  max_backups: 5         # Garder 5 backups
+  max_age_days: 30       # Supprimer après 30 jours
+  min_backups: 2         # Garder au moins 2 backups

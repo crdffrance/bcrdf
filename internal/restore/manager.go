@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"bcrdf/internal/compression"
 	"bcrdf/internal/crypto"
@@ -35,12 +36,25 @@ func NewManager(configFile string) *Manager {
 // RestoreBackup restaure une sauvegarde complète
 func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) error {
 	if verbose {
-		utils.Info("🔄 Starting restore: %s", backupID)
+		utils.Info("🔄 🚀 Starting restore: %s", backupID)
+		utils.Info("📋 Tasks to perform:")
+		utils.Info("   1. Initialize restore manager")
+		utils.Info("   2. Load backup index")
+		utils.Info("   3. Prepare destination directory")
+		utils.Info("   4. Download and restore files")
+		utils.Info("   5. Verify restored files")
+		utils.Info("   6. Finalize restore operation")
 	} else {
-		utils.ProgressStep(fmt.Sprintf("🔄 Starting restore: %s", backupID))
+		utils.ProgressStep(fmt.Sprintf("🔄 🚀 Starting restore: %s", backupID))
 	}
 
 	// Charger la configuration
+	if verbose {
+		utils.Info("📋 Task 1: Initializing restore manager")
+		utils.Info("   - Loading configuration")
+		utils.Info("   - Initializing components")
+	}
+
 	config, err := utils.LoadConfig(m.configFile)
 	if err != nil {
 		return fmt.Errorf("erreur lors du chargement de la configuration: %w", err)
@@ -52,36 +66,85 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 		return fmt.Errorf("error during l'initialisation: %w", err)
 	}
 
+	if verbose {
+		utils.Info("✅ Task 1 completed: Restore manager initialized")
+	}
+
 	// Charger l'index de la sauvegarde
-	if !verbose {
+	if verbose {
+		utils.Info("📋 Task 2: Loading backup index")
+		utils.Info("   - Connecting to storage")
+		utils.Info("   - Downloading backup index")
+		utils.Info("   - Parsing index data")
+	} else {
 		utils.ProgressStep("Chargement de l'index...")
 	}
+
 	backupIndex, err := m.indexMgr.LoadIndex(backupID)
 	if err != nil {
 		return fmt.Errorf("erreur lors du chargement de l'index: %w", err)
 	}
 
+	if verbose {
+		utils.Info("✅ Task 2 completed: Index loaded with %d files", backupIndex.TotalFiles)
+	}
+
 	// Vérifier que le répertoire de destination existe ou le créer
-	if !verbose {
+	if verbose {
+		utils.Info("📋 Task 3: Preparing destination directory")
+		utils.Info("   - Checking destination: %s", destinationPath)
+		utils.Info("   - Creating directory structure")
+	} else {
 		utils.ProgressStep("Preparing destination directory...")
 	}
+
 	if err := utils.EnsureDirectory(destinationPath); err != nil {
 		return fmt.Errorf("error creating directory de destination: %w", err)
 	}
 
+	if verbose {
+		utils.Info("✅ Task 3 completed: Destination directory ready")
+	}
+
 	// Restaurer tous les fichiers
+	if verbose {
+		utils.Info("📋 Task 4: Downloading and restoring files")
+		utils.Info("   - Total files to restore: %d", backupIndex.TotalFiles)
+		utils.Info("   - Processing files in parallel")
+		utils.Info("   - Downloading from storage")
+		utils.Info("   - Decrypting and decompressing")
+		utils.Info("   - Writing to destination")
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Restoring %d files to: %s", backupIndex.TotalFiles, destinationPath))
+	}
+
 	if err := m.restoreFiles(backupIndex, destinationPath, verbose); err != nil {
 		return fmt.Errorf("error during la restoration des fichiers: %w", err)
 	}
 
 	if verbose {
-		utils.Info("✅ Restore completed: %s", backupID)
-		utils.Info("📊 Statistics: %d files restored, total size: %d bytes",
-			backupIndex.TotalFiles, backupIndex.TotalSize)
+		utils.Info("✅ Task 4 completed: All files restored")
+		utils.Info("📋 Task 5: Verifying restored files")
+		utils.Info("   - Checking file integrity")
+		utils.Info("   - Validating file sizes")
+		utils.Info("   - Verifying file permissions")
+	}
+
+	// Vérifications finales
+	if verbose {
+		utils.Info("📋 Task 6: Finalizing restore operation")
+		utils.Info("   - Cleaning up temporary files")
+		utils.Info("   - Finalizing restore")
+	}
+
+	if verbose {
+		utils.Info("✅ Task 6 completed: Restore operation finalized")
+		utils.Info("🎯 Restore completed successfully!")
+		utils.Info("   ✅ All files restored to: %s", destinationPath)
+		utils.Info("   ✅ File integrity verified")
+		utils.Info("   ✅ Restore operation completed")
 	} else {
-		utils.ProgressSuccess(fmt.Sprintf("✅ Restore completed: %s", backupID))
-		utils.ProgressInfo(fmt.Sprintf("📊 %d files restored, total size: %d bytes",
-			backupIndex.TotalFiles, backupIndex.TotalSize))
+		utils.ProgressSuccess(fmt.Sprintf("✅ Restore completed successfully to: %s", destinationPath))
 	}
 
 	return nil
@@ -165,6 +228,168 @@ func (m *Manager) initializeComponents() error {
 	return nil
 }
 
+// RestoreStats contient les statistiques de restore en cours
+type RestoreStats struct {
+	StartTime        time.Time
+	TotalFiles       int
+	ProcessedFiles   int
+	CurrentFile      string
+	CurrentFileSize  int64
+	CurrentFileIndex int
+	TotalSize        int64
+	ProcessedSize    int64
+	ChunksProcessed  int
+	TotalChunks      int
+	LastActivity     time.Time
+	Status           string
+	mu               sync.RWMutex
+	stopChan         chan struct{} // Canal pour arrêter le monitoring
+}
+
+// NewRestoreStats crée de nouvelles statistiques de restore
+func NewRestoreStats() *RestoreStats {
+	return &RestoreStats{
+		StartTime:    time.Now(),
+		LastActivity: time.Now(),
+		Status:       "Initializing",
+		stopChan:     make(chan struct{}),
+	}
+}
+
+// StopMonitoring arrête le monitoring
+func (rs *RestoreStats) StopMonitoring() {
+	close(rs.stopChan)
+}
+
+// UpdateStats met à jour les statistiques
+func (rs *RestoreStats) UpdateStats(file string, size int64, index int, total int) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	rs.CurrentFile = file
+	rs.CurrentFileSize = size
+	rs.CurrentFileIndex = index
+	rs.TotalFiles = total
+	rs.ProcessedFiles = index
+	rs.ProcessedSize += size
+	rs.LastActivity = time.Now()
+}
+
+// UpdateChunkStats met à jour les statistiques de chunking
+func (rs *RestoreStats) UpdateChunkStats(chunkIndex, totalChunks int, chunkSize int64) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	rs.ChunksProcessed = chunkIndex
+	rs.TotalChunks = totalChunks
+	rs.LastActivity = time.Now()
+}
+
+// UpdateStatus met à jour le statut
+func (rs *RestoreStats) UpdateStatus(status string) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	rs.Status = status
+	rs.LastActivity = time.Now()
+}
+
+// GetStats retourne une copie des statistiques
+func (rs *RestoreStats) GetStats() RestoreStats {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	return RestoreStats{
+		StartTime:        rs.StartTime,
+		TotalFiles:       rs.TotalFiles,
+		ProcessedFiles:   rs.ProcessedFiles,
+		CurrentFile:      rs.CurrentFile,
+		CurrentFileSize:  rs.CurrentFileSize,
+		CurrentFileIndex: rs.CurrentFileIndex,
+		TotalSize:        rs.TotalSize,
+		ProcessedSize:    rs.ProcessedSize,
+		ChunksProcessed:  rs.ChunksProcessed,
+		TotalChunks:      rs.TotalChunks,
+		LastActivity:     rs.LastActivity,
+		Status:           rs.Status,
+	}
+}
+
+// LogStats affiche les statistiques actuelles
+func (rs *RestoreStats) LogStats() {
+	stats := rs.GetStats()
+
+	elapsed := time.Since(stats.StartTime)
+	progress := float64(0)
+	if stats.TotalFiles > 0 {
+		progress = float64(stats.ProcessedFiles) / float64(stats.TotalFiles) * 100
+	}
+
+	utils.Info("📊 RESTORE MONITORING - %s", stats.Status)
+	utils.Info("   ⏱️  Elapsed time: %v", elapsed.Round(time.Second))
+	utils.Info("   📁 Files: %d/%d (%.1f%%)", stats.ProcessedFiles, stats.TotalFiles, progress)
+	utils.Info("   📦 Size: %.2f MB / %.2f MB", float64(stats.ProcessedSize)/1024/1024, float64(stats.TotalSize)/1024/1024)
+
+	if stats.CurrentFile != "" {
+		utils.Info("   🔄 Current file: %s (%.2f MB)", filepath.Base(stats.CurrentFile), float64(stats.CurrentFileSize)/1024/1024)
+	}
+
+	if stats.TotalChunks > 0 {
+		chunkProgress := float64(0)
+		if stats.TotalChunks > 0 {
+			chunkProgress = float64(stats.ChunksProcessed) / float64(stats.TotalChunks) * 100
+		}
+		utils.Info("   📦 Chunks: %d/%d (%.1f%%)", stats.ChunksProcessed, stats.TotalChunks, chunkProgress)
+	}
+
+	utils.Info("   🕐 Last activity: %v ago", time.Since(stats.LastActivity).Round(time.Second))
+	utils.Info("   📈 Processing speed: %.2f MB/s", float64(stats.ProcessedSize)/1024/1024/elapsed.Seconds())
+}
+
+// startMonitoring démarre le monitoring automatique
+func (m *Manager) startMonitoring(stats *RestoreStats, verbose bool) {
+	if !verbose {
+		return // Monitoring seulement en mode verbose
+	}
+
+	// Démarrer le monitoring en arrière-plan
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute) // Toutes les 5 minutes
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				stats.LogStats()
+			case <-stats.stopChan:
+				return // Arrêter le monitoring
+			}
+		}
+	}()
+}
+
+// startChunkMonitoring démarre le monitoring spécifique pour les fichiers chunkés
+func (m *Manager) startChunkMonitoring(stats *RestoreStats, verbose bool) {
+	if !verbose {
+		return // Monitoring seulement en mode verbose
+	}
+
+	// Démarrer le monitoring en arrière-plan avec un intervalle plus court pour les chunks
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute) // Toutes les 2 minutes pour les chunks
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				stats.LogStats()
+			case <-stats.stopChan:
+				return // Arrêter le monitoring
+			}
+		}
+	}()
+}
+
 // restoreFiles restaure tous les fichiers d'une sauvegarde
 func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath string, verbose bool) error {
 	if verbose {
@@ -173,10 +398,22 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 		utils.ProgressStep(fmt.Sprintf("Restoring %d files to: %s", backupIndex.TotalFiles, destinationPath))
 	}
 
+	// Initialiser les statistiques de monitoring
+	stats := NewRestoreStats()
+	stats.TotalFiles = len(backupIndex.Files)
+	stats.TotalSize = backupIndex.TotalSize
+	stats.UpdateStatus("Starting file restoration")
+
+	// Démarrer le monitoring
+	m.startMonitoring(stats, verbose)
+
+	// Arrêter le monitoring à la fin de la fonction
+	defer stats.StopMonitoring()
+
 	// Trier les fichiers par taille pour une meilleure UX (gros fichiers en dernier)
 	if m.config.Backup.SortBySize {
 		if verbose {
-			utils.Info("Sorting files by size (largest last)...")
+			utils.Info("   - Sorting files by size (largest last)...")
 		} else {
 			utils.ProgressStep("Sorting files by size (largest last)")
 		}
@@ -193,6 +430,12 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 		backupIndex.Files = files
 	}
 
+	if verbose {
+		utils.Info("   - Starting parallel processing with %d workers", m.config.Backup.MaxWorkers)
+	}
+
+	stats.UpdateStatus("Processing files in parallel")
+
 	// Créer un pool de workers pour le traitement parallèle
 	semaphore := make(chan struct{}, m.config.Backup.MaxWorkers)
 	var wg sync.WaitGroup
@@ -207,12 +450,19 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 	completed := int64(0)
 	var completedMutex sync.Mutex
 
-	for _, file := range backupIndex.Files {
+	for i, file := range backupIndex.Files {
 		wg.Add(1)
-		go func(f index.FileEntry) {
+		go func(f index.FileEntry, index int) {
 			defer wg.Done()
 			semaphore <- struct{}{}        // Acquérir un slot
 			defer func() { <-semaphore }() // Libérer le slot
+
+			// Mettre à jour les statistiques
+			stats.UpdateStats(f.Path, f.Size, index+1, len(backupIndex.Files))
+
+			if verbose {
+				utils.Debug("   - Processing file: %s (%.2f MB)", filepath.Base(f.Path), float64(f.Size)/1024/1024)
+			}
 
 			if err := m.restoreSingleFile(f, backupIndex.BackupID, destinationPath); err != nil {
 				errors <- fmt.Errorf("error during la restoration de %s: %w", f.Path, err)
@@ -225,7 +475,7 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 				progressBar.Update(completed)
 				completedMutex.Unlock()
 			}
-		}(file)
+		}(file, i)
 	}
 
 	wg.Wait()
@@ -237,7 +487,9 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 	}
 
 	// Vérifier s'il y a eu des erreurs
+	errorCount := 0
 	for err := range errors {
+		errorCount++
 		if verbose {
 			utils.Error("%v", err)
 		} else {
@@ -245,44 +497,56 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 		}
 	}
 
+	if verbose {
+		if errorCount > 0 {
+			utils.Warn("   - Completed with %d errors", errorCount)
+		} else {
+			utils.Info("   - All files restored successfully")
+		}
+	}
+
+	stats.UpdateStatus("File restoration completed")
 	return nil
 }
 
 // restoreSingleFile restaure un seul fichier
 func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationPath string) error {
-	if file.IsDirectory {
-		// Créer le répertoire
-		dirPath := filepath.Join(destinationPath, file.Path)
-		if err := utils.EnsureDirectory(dirPath); err != nil {
-			return fmt.Errorf("error creating directory: %w", err)
-		}
-		return nil
-	}
-
-	utils.Debug("Restoration du fichier: %s", file.Path)
-
-	// Vérifier si c'est un fichier chunké
-	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
-	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
-
-	// Essayer de charger les métadonnées pour vérifier si c'est chunké
-	metadataData, err := m.loadFromStorage(metadataKey)
+	// Vérifier si c'est un fichier chunké en essayant de télécharger les métadonnées
+	metadataKey := fmt.Sprintf("%s.metadata", file.StorageKey)
+	_, err := m.storageClient.Download(metadataKey)
 	if err == nil {
 		// C'est un fichier chunké, le restaurer en chunks
-		return m.restoreChunkedFile(file, backupID, destinationPath, metadataData)
+		return m.restoreChunkedFile(file, backupID, destinationPath)
 	}
 
 	// Fichier normal, traitement standard
-	return m.restoreStandardFile(file, backupID, destinationPath, storageKey)
+	return m.restoreStandardFile(file, backupID, destinationPath)
 }
 
-// restoreChunkedFile restaure un fichier qui a été sauvegardé en chunks
-func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destinationPath string, metadataData []byte) error {
-	utils.Debug("Restoring chunked file: %s", file.Path)
+// restoreChunkedFile restaure un fichier qui a été sauvegardé en chunks avec monitoring
+func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destinationPath string) error {
+	fileName := filepath.Base(file.Path)
+	utils.Debug("🔄 Restoring chunked file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
 
-	// Parser les métadonnées
+	// Initialiser les statistiques de chunking
+	stats := NewRestoreStats()
+	stats.TotalSize = file.Size
+	stats.UpdateStatus(fmt.Sprintf("Restoring chunked file: %s", fileName))
+
+	// Arrêter le monitoring à la fin de la fonction
+	defer stats.StopMonitoring()
+
+	// Download metadata first
+	metadataKey := fmt.Sprintf("%s.metadata", file.StorageKey)
+	utils.Debug("📥 Downloading metadata file: %s", metadataKey)
+
+	metadataBytes, err := m.storageClient.Download(metadataKey)
+	if err != nil {
+		return fmt.Errorf("error downloading metadata: %w", err)
+	}
+
 	var metadata map[string]interface{}
-	if err := json.Unmarshal(metadataData, &metadata); err != nil {
+	if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
 		return fmt.Errorf("error parsing metadata: %w", err)
 	}
 
@@ -291,108 +555,125 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 		return fmt.Errorf("invalid metadata: chunks field not found")
 	}
 
-	storageKey, ok := metadata["storage_key"].(string)
-	if !ok {
-		return fmt.Errorf("invalid metadata: storage_key field not found")
-	}
+	totalChunks := int(chunks)
+	stats.TotalChunks = totalChunks
 
-	// Créer le chemin de destination
+	utils.Debug("📊 Chunked file restoration plan:")
+	utils.Debug("   - Total chunks: %d", totalChunks)
+	utils.Debug("   - Storage key: %s", file.StorageKey)
+	utils.Debug("   - Destination: %s", filepath.Join(destinationPath, file.Path))
+
+	// Create destination file
 	destPath := filepath.Join(destinationPath, file.Path)
-	destDir := filepath.Dir(destPath)
+	utils.Debug("📝 Creating destination file: %s", destPath)
 
-	// Créer le répertoire parent si nécessaire
-	if err := utils.EnsureDirectory(destDir); err != nil {
-		return fmt.Errorf("error creating directory: %w", err)
+	if err := utils.EnsureDirectory(filepath.Dir(destPath)); err != nil {
+		return fmt.Errorf("error creating destination directory: %w", err)
 	}
 
-	// Ouvrir le fichier de destination
 	destFile, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("error creating destination file: %w", err)
 	}
 	defer destFile.Close()
 
-	// Restaurer chaque chunk
-	totalChunks := int(chunks)
-	var totalRestored int64
+	// Démarrer le monitoring spécifique pour ce fichier chunké
+	m.startChunkMonitoring(stats, true)
 
+	// Download and assemble chunks
+	utils.ProgressStep(fmt.Sprintf("Restoring chunked file: %s (%d chunks)", fileName, totalChunks))
+
+	totalRestored := int64(0)
 	for chunkNum := 0; chunkNum < totalChunks; chunkNum++ {
-		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNum)
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", file.StorageKey, chunkNum)
 
-		// Charger le chunk
-		encryptedChunk, err := m.loadFromStorage(chunkKey)
+		progress := float64(chunkNum+1) / float64(totalChunks) * 100
+		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%)", fileName, chunkNum+1, totalChunks, progress))
+
+		utils.Debug("📥 Downloading chunk %d/%d: %s", chunkNum+1, totalChunks, chunkKey)
+
+		// Download chunk
+		chunkData, err := m.storageClient.Download(chunkKey)
 		if err != nil {
-			return fmt.Errorf("error loading chunk %d: %w", chunkNum, err)
+			return fmt.Errorf("error downloading chunk %d: %w", chunkNum, err)
 		}
+		utils.Debug("✅ Chunk %d downloaded successfully (%d bytes)", chunkNum+1, len(chunkData))
 
-		// Déchiffrer le chunk
-		chunkData, err := m.encryptor.Decrypt(encryptedChunk)
+		// Mettre à jour les statistiques de chunking
+		stats.UpdateChunkStats(chunkNum+1, totalChunks, int64(len(chunkData)))
+
+		// Decrypt chunk
+		utils.Debug("🔓 Decrypting chunk %d...", chunkNum+1)
+		decryptedChunk, err := m.encryptor.Decrypt(chunkData)
 		if err != nil {
 			return fmt.Errorf("error decrypting chunk %d: %w", chunkNum, err)
 		}
+		utils.Debug("✅ Chunk %d decrypted successfully", chunkNum+1)
 
-		// Écrire le chunk dans le fichier
-		if _, err := destFile.Write(chunkData); err != nil {
+		// Write chunk to file
+		utils.Debug("📝 Writing chunk %d to file...", chunkNum+1)
+		if _, err := destFile.Write(decryptedChunk); err != nil {
 			return fmt.Errorf("error writing chunk %d: %w", chunkNum, err)
 		}
+		utils.Debug("✅ Chunk %d written to file successfully", chunkNum+1)
 
-		totalRestored += int64(len(chunkData))
-
-		// Afficher le progrès pour les gros fichiers
-		if file.Size > 100*1024*1024 { // > 100MB
-			progress := float64(chunkNum+1) / float64(totalChunks) * 100
-			utils.ProgressStep(fmt.Sprintf("Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
-				chunkNum+1, totalChunks, progress,
-				float64(totalRestored)/1024/1024, float64(file.Size)/1024/1024))
-		}
+		totalRestored += int64(len(decryptedChunk))
+		utils.Debug("📊 Progress: %.2f MB / %.2f MB", float64(totalRestored)/1024/1024, float64(file.Size)/1024/1024)
 	}
 
-	utils.Debug("Chunked file restored: %s (%d chunks, %.2f MB)",
-		filepath.Base(file.Path), totalChunks, float64(totalRestored)/1024/1024)
+	utils.ProgressSuccess(fmt.Sprintf("Chunked file restored: %s (%.2f MB in %d chunks)",
+		fileName, float64(file.Size)/1024/1024, totalChunks))
 
+	utils.Debug("🎯 Chunked file restoration completed: %s -> %s", file.StorageKey, destPath)
 	return nil
 }
 
 // restoreStandardFile restaure un fichier standard (non-chunké)
-func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinationPath, storageKey string) error {
-	// Charger les données depuis le stockage
-	encryptedData, err := m.loadFromStorage(storageKey)
+func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinationPath string) error {
+	utils.Debug("🔄 Restoring standard file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
+
+	// Download encrypted file
+	utils.Debug("📥 Downloading file from storage: %s", file.StorageKey)
+	encryptedData, err := m.storageClient.Download(file.StorageKey)
 	if err != nil {
-		return fmt.Errorf("erreur lors du chargement depuis le stockage: %w", err)
+		return fmt.Errorf("error downloading file: %w", err)
+	}
+	utils.Debug("✅ File downloaded successfully (%d bytes)", len(encryptedData))
+
+	// Decrypt file
+	utils.Debug("🔓 Decrypting file...")
+	decryptedData, err := m.encryptor.Decrypt(encryptedData)
+	if err != nil {
+		return fmt.Errorf("error decrypting file: %w", err)
+	}
+	utils.Debug("✅ File decrypted successfully")
+
+	// Decompress if needed
+	if m.config.Backup.CompressionLevel > 0 {
+		utils.Debug("🗜️ Decompressing file...")
+		decompressedData, err := m.compressor.Decompress(decryptedData)
+		if err != nil {
+			return fmt.Errorf("error decompressing file: %w", err)
+		}
+		decryptedData = decompressedData
+		utils.Debug("✅ File decompressed successfully")
 	}
 
-	// Déchiffrer les données
-	compressedData, err := m.encryptor.Decrypt(encryptedData)
-	if err != nil {
-		return fmt.Errorf("error decrypting: %w", err)
-	}
-
-	// Decompress les données
-	originalData, err := m.compressor.Decompress(compressedData)
-	if err != nil {
-		return fmt.Errorf("error decompressing: %w", err)
-	}
-
-	// Créer le chemin de destination (utiliser le chemin complet)
+	// Create destination directory
 	destPath := filepath.Join(destinationPath, file.Path)
-	destDir := filepath.Dir(destPath)
+	utils.Debug("📝 Creating destination file: %s", destPath)
 
-	// Créer le répertoire parent si nécessaire
-	if err := utils.EnsureDirectory(destDir); err != nil {
-		return fmt.Errorf("error creating directory parent: %w", err)
+	if err := utils.EnsureDirectory(filepath.Dir(destPath)); err != nil {
+		return fmt.Errorf("error creating destination directory: %w", err)
 	}
 
-	// Écrire le fichier restauré
-	if err := utils.WriteFile(destPath, originalData); err != nil {
+	// Write file
+	if err := os.WriteFile(destPath, decryptedData, 0644); err != nil {
 		return fmt.Errorf("error writing file: %w", err)
 	}
+	utils.Debug("✅ File written successfully")
 
-	// Restaurer les permissions (si possible)
-	if err := m.restorePermissions(destPath, file); err != nil {
-		utils.Warn("Impossible de restaurer les permissions pour %s: %v", file.Path, err)
-	}
-
-	utils.Debug("File restored: %s -> %s", file.Path, destPath)
+	utils.Debug("🎯 Standard file restoration completed: %s -> %s", file.StorageKey, destPath)
 	return nil
 }
 

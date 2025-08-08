@@ -177,9 +177,15 @@ func (m *Manager) CompareIndexes(current, previous *BackupIndex) (*IndexDiff, er
 		if previousFile, exists := previousMap[path]; !exists {
 			// Nouveau fichier
 			diff.Added = append(diff.Added, currentFile)
-		} else if currentFile.IsModified(&previousFile) {
-			// Fichier modifié
-			diff.Modified = append(diff.Modified, currentFile)
+			utils.Debug("📁 Added: %s", path)
+		} else {
+			// Vérifier si le fichier a été modifié
+			if m.isFileModified(&currentFile, &previousFile) {
+				diff.Modified = append(diff.Modified, currentFile)
+				utils.Debug("🔄 Modified: %s", path)
+			} else {
+				utils.Debug("✅ Unchanged: %s", path)
+			}
 		}
 	}
 
@@ -188,6 +194,7 @@ func (m *Manager) CompareIndexes(current, previous *BackupIndex) (*IndexDiff, er
 		if _, exists := currentMap[path]; !exists {
 			// File deleted
 			diff.Deleted = append(diff.Deleted, previousFile)
+			utils.Debug("🗑️  Deleted: %s", path)
 		}
 	}
 
@@ -195,6 +202,37 @@ func (m *Manager) CompareIndexes(current, previous *BackupIndex) (*IndexDiff, er
 		len(diff.Added), len(diff.Modified), len(diff.Deleted))
 
 	return diff, nil
+}
+
+// isFileModified détermine si un fichier a été modifié avec une logique améliorée
+func (m *Manager) isFileModified(current, previous *FileEntry) bool {
+	// Vérifier d'abord la taille (le plus rapide)
+	if current.Size != previous.Size {
+		utils.Debug("   Size changed: %d -> %d", previous.Size, current.Size)
+		return true
+	}
+
+	// Vérifier le temps de modification
+	if !current.ModifiedTime.Equal(previous.ModifiedTime) {
+		utils.Debug("   Modification time changed: %s -> %s",
+			previous.ModifiedTime.Format("2006-01-02 15:04:05"),
+			current.ModifiedTime.Format("2006-01-02 15:04:05"))
+		return true
+	}
+
+	// Vérifier les permissions
+	if current.Permissions != previous.Permissions {
+		utils.Debug("   Permissions changed: %s -> %s", previous.Permissions, current.Permissions)
+		return true
+	}
+
+	// Vérifier le checksum seulement si nécessaire
+	if current.Checksum != previous.Checksum {
+		utils.Debug("   Checksum changed: %s -> %s", previous.Checksum[:8], current.Checksum[:8])
+		return true
+	}
+
+	return false
 }
 
 // ListBackups liste toutes les sauvegardes disponibles
@@ -312,6 +350,11 @@ func shouldSkipFile(path string, info os.FileInfo) bool {
 func (m *Manager) shouldSkipFileWithConfig(path string, info os.FileInfo) bool {
 	// First check basic skip rules
 	if shouldSkipFile(path, info) {
+		return true
+	}
+
+	// Skip directories by default (only backup files, not directories)
+	if info.IsDir() {
 		return true
 	}
 
@@ -454,7 +497,12 @@ func (m *Manager) countFiles(sourcePath, checksumMode string, verbose bool) (int
 		if err != nil || m.shouldSkipFileWithConfig(path, info) {
 			return nil
 		}
-		fileCount++
+
+		// Only count files, not directories
+		if !info.IsDir() {
+			fileCount++
+		}
+
 		return nil
 	})
 	if err != nil {

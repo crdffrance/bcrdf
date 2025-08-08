@@ -22,8 +22,8 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-	Version   = "2.3.0"
-	BuildTime = "2024-08-07"
+	Version   = "2.4.0"
+	BuildTime = "2024-08-08"
 	GoVersion = "1.24"
 )
 
@@ -49,10 +49,12 @@ that uses an index-based approach to optimize storage and performance.
 
 Key features:
 - Incremental backup with index
-- AES-256 encryption
-- GZIP compression
+- AES-256-GCM and XChaCha20-Poly1305 encryption
+- GZIP compression with adaptive levels
 - S3 and WebDAV compatible storage
-- Precise point-in-time restoration`,
+- S3 Glacier storage class support (Scaleway, AWS)
+- Precise point-in-time restoration
+- Automatic retention policies`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			if verbose {
 				utils.SetLogLevel("debug")

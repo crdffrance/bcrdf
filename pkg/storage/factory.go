@@ -10,6 +10,18 @@ import (
 func NewStorageClient(config *utils.Config) (Client, error) {
 	switch config.Storage.Type {
 	case "s3":
+		// Vérifier si une classe de stockage est configurée
+		if config.Storage.StorageClass != "" {
+			return NewS3AdapterWithStorageClass(
+				config.Storage.AccessKey,
+				config.Storage.SecretKey,
+				config.Storage.Region,
+				config.Storage.Endpoint,
+				config.Storage.Bucket,
+				config.Storage.StorageClass,
+			)
+		}
+
 		return NewS3Adapter(
 			config.Storage.AccessKey,
 			config.Storage.SecretKey,

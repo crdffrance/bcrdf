@@ -6,7 +6,8 @@ import (
 
 // S3Adapter adapte le client S3 à l'interface commune
 type S3Adapter struct {
-	client *s3.Client
+	client       *s3.Client
+	storageClass string
 }
 
 // NewS3Adapter crée un nouvel adaptateur S3
@@ -19,9 +20,22 @@ func NewS3Adapter(accessKey, secretKey, region, endpoint, bucket string) (*S3Ada
 	return &S3Adapter{client: client}, nil
 }
 
+// NewS3AdapterWithStorageClass crée un nouvel adaptateur S3 avec classe de stockage
+func NewS3AdapterWithStorageClass(accessKey, secretKey, region, endpoint, bucket, storageClass string) (*S3Adapter, error) {
+	client, err := s3.NewClient(accessKey, secretKey, region, endpoint, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return &S3Adapter{
+		client:       client,
+		storageClass: storageClass,
+	}, nil
+}
+
 // Upload implémente l'interface Client
 func (a *S3Adapter) Upload(key string, data []byte) error {
-	return a.client.Upload(key, data)
+	return a.client.UploadWithStorageClass(key, data, a.storageClass)
 }
 
 // Download implémente l'interface Client

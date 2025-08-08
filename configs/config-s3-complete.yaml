@@ -1,90 +1,109 @@
-# Configuration BCRDF pour S3 (AWS, Scaleway, DigitalOcean, etc.)
-# Copiez ce fichier et modifiez selon votre fournisseur S3
+# Configuration BCRDF pour S3 (AWS, Scaleway, DigitalOcean, MinIO, etc.)
+# ======================================================================
 
 storage:
   type: "s3"
   
-  # === CONFIGURATION S3 ===
-  bucket: "votre-bucket-bcrdf"
+  # === SCALEWAY S3 ===
+  # Endpoint Scaleway S3
+  endpoint: "https://s3.fr-par.scw.cloud"
+  region: "fr-par"
+  bucket: "your-bucket-name"
+  access_key: "your-access-key"
+  secret_key: "your-secret-key"
   
-  # === FOURNISSEURS S3 ===
-  # AWS S3
-  region: "us-east-1"
-  endpoint: "https://s3.us-east-1.amazonaws.com"
+  # Classes de stockage Scaleway S3
+  # Décommentez une des lignes suivantes selon vos besoins :
+  # storage_class: "STANDARD"        # Stockage standard (par défaut)
+  # storage_class: "GLACIER"         # Stockage glacier (archivage longue durée)
+  # storage_class: "DEEP_ARCHIVE"    # Archivage très longue durée (moins cher)
+  # storage_class: "INTELLIGENT_TIERING"  # Tiering intelligent (optimise automatiquement)
   
-  # Scaleway S3
-  # region: "fr-par"
-  # endpoint: "https://s3.fr-par.scw.cloud"
-  
-  # DigitalOcean Spaces
-  # region: "nyc3"
-  # endpoint: "https://nyc3.digitaloceanspaces.com"
-  
-  # MinIO (local)
+  # === AWS S3 ===
+  # endpoint: "https://s3.amazonaws.com"  # ou endpoint régional
   # region: "us-east-1"
-  # endpoint: "http://localhost:9000"
+  # bucket: "your-aws-bucket"
+  # access_key: "your-aws-access-key"
+  # secret_key: "your-aws-secret-key"
+  # storage_class: "STANDARD"        # STANDARD, GLACIER, DEEP_ARCHIVE, etc.
   
-  # === CRÉDENTIALS ===
-  access_key: "VOTRE_ACCESS_KEY"
-  secret_key: "VOTRE_SECRET_KEY"
+  # === DIGITALOCEAN SPACES ===
+  # endpoint: "https://nyc3.digitaloceanspaces.com"  # Région choisie
+  # region: "nyc3"
+  # bucket: "your-space-name"
+  # access_key: "your-spaces-key"
+  # secret_key: "your-spaces-secret"
+  # storage_class: "STANDARD"        # DigitalOcean utilise STANDARD
   
-  # === PARAMÈTRES AVANCÉS S3 (optionnels) ===
-  # force_path_style: false    # Pour MinIO ou compatibles
-  # disable_ssl: false         # Pour HTTP local
-  # max_retries: 3             # Tentatives de retry
+  # === MINIO ===
+  # endpoint: "http://localhost:9000"  # ou votre serveur MinIO
+  # region: "us-east-1"
+  # bucket: "your-minio-bucket"
+  # access_key: "your-minio-access-key"
+  # secret_key: "your-minio-secret-key"
+  # storage_class: "STANDARD"        # MinIO utilise STANDARD
 
 backup:
-  # === CHIFFREMENT ===
-  # Générez une clé sécurisée avec: ./scripts/generate-key.sh
-  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-  encryption_algo: "aes-256-gcm"  # aes-256-gcm, xchacha20-poly1305
+  # === CRYPTAGE ===
+  encryption_key: "your-32-byte-encryption-key-here"
+  encryption_algo: "xchacha20-poly1305"  # ou "aes-256-gcm"
   
   # === COMPRESSION ===
-  compression_level: 1  # 1-9 (1=rapide, 9=maximum)
+  compression_level: 1                    # 1-9 (1=rapide, 9=maximum)
+  compression_adaptive: true              # Compression adaptative
   
   # === PERFORMANCE ===
-  max_workers: 16        # Nombre de workers parallèles (2-32)
-  buffer_size: "32MB"    # Taille du buffer de lecture
-  batch_size: 25         # Nombre de fichiers par batch
-  batch_size_limit: "8MB" # Limite de taille par batch
+  max_workers: 20                        # Nombre de workers parallèles
+  buffer_size: "32MB"                    # Taille du buffer de lecture
+  memory_limit: "256MB"                  # Limite mémoire pour gros fichiers
   
-  # === CHUNKING POUR GROS FICHIERS ===
-  chunk_size: "32MB"     # Taille des chunks
-  memory_limit: "256MB"  # Limite mémoire pour gros fichiers
-  chunk_size_large: "25MB" # Taille des chunks pour gros fichiers
-  large_file_threshold: "100MB"      # Seuil pour gros fichiers
-  ultra_large_threshold: "1GB"       # Seuil pour ultra-gros fichiers (chunking)
+  # === CHUNKING (pour gros fichiers) ===
+  chunk_size: "32MB"                     # Taille des chunks pour streaming
+  chunk_size_large: "50MB"               # Chunks pour gros fichiers
+  large_file_threshold: "100MB"          # Seuil pour fichiers volumineux
+  ultra_large_threshold: "5GB"           # Seuil pour fichiers très volumineux
   
   # === RÉSEAU ===
-  network_timeout: 120   # Timeout en secondes
-  retry_attempts: 5      # Nombre de tentatives
-  retry_delay: 2         # Délai entre tentatives (secondes)
+  network_timeout: 120                   # Timeout réseau (secondes)
+  retry_attempts: 5                      # Nombre de tentatives
+  retry_delay: 2                         # Délai entre tentatives (secondes)
   
-  # === CHECKSUM ET VALIDATION ===
-  checksum_mode: "fast"  # fast (5x plus rapide), full (maximum sécurité), metadata (10x plus rapide)
+  # === VÉRIFICATION ===
+  checksum_mode: "fast"                  # "full", "fast", "metadata"
+  cache_enabled: true                    # Cache des checksums
+  cache_max_size: 10000                 # Taille max du cache
+  cache_max_age: 60                     # Âge max cache (minutes)
   
   # === OPTIMISATIONS ===
-  sort_by_size: true     # Traiter les petits fichiers en premier
+  sort_by_size: true                     # Traiter les petits fichiers en premier
+  batch_size: 50                        # Nombre de fichiers par batch
+  batch_size_limit: "8MB"               # Limite de taille par batch
   
-  # === FICHIERS À IGNORER ===
+  # === EXCLUSIONS ===
   skip_patterns:
     - "*.tmp"
     - "*.cache"
     - "*.log"
-    - "*.temp"
     - ".DS_Store"
     - "Thumbs.db"
-    - "*.zip"           # Fichiers déjà compressés
+    - "*.swp"
+    - "*.swo"
+    - "node_modules/"
+    - ".git/"
+    - "__pycache__/"
+    - "*.zip"
     - "*.tar.gz"
     - "*.rar"
     - "*.7z"
-    - "*.iso"           # Images disque
+    - "*.iso"
     - "*.vmdk"
     - "*.vdi"
+    - "*.qcow2"
+    - "*.raw"
 
 retention:
-  days: 30               # Garder les sauvegardes pendant 30 jours
-  max_backups: 10        # Maximum 10 sauvegardes
+  days: 30                              # Âge maximum des backups (jours)
+  max_backups: 10                       # Nombre maximum de backups
 
 # === LOGGING (optionnel) ===
 # logging:

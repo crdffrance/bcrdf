@@ -1,0 +1,98 @@
+# Configuration BCRDF optimisée pour CPU faible
+# Utilisez cette config si votre serveur monte à 100% CPU
+
+storage:
+  type: "s3"
+  bucket: "votre-bucket-bcrdf"
+  region: "fr-par"
+  endpoint: "https://s3.fr-par.scw.cloud"
+  access_key: "VOTRE_ACCESS_KEY_SCALEWAY"
+  secret_key: "VOTRE_SECRET_KEY_SCALEWAY"
+
+backup:
+  # Clé de chiffrement (32 bytes pour AES-256-GCM)
+  encryption_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  encryption_algo: "aes-256-gcm"
+  
+  # === OPTIMISATIONS CPU ===
+  max_workers: 2         # Réduit de 16 à 2 (très faible CPU)
+  compression_level: 1   # Compression la plus rapide
+  checksum_mode: "metadata"  # Mode le plus rapide (10x plus rapide)
+  
+  # === BUFFERS RÉDUITS ===
+  buffer_size: "8MB"     # Buffer plus petit
+  batch_size: 10         # Moins de fichiers par batch
+  batch_size_limit: "4MB" # Limite plus petite
+  
+  # === CHUNKING OPTIMISÉ ===
+  chunk_size: "16MB"     # Chunks plus petits
+  memory_limit: "128MB"  # Moins de mémoire
+  chunk_size_large: "10MB"
+  large_file_threshold: "50MB"      # Seuil plus bas
+  ultra_large_threshold: "500MB"    # Seuil plus bas
+  
+  # === RÉSEAU OPTIMISÉ ===
+  network_timeout: 60    # Timeout plus court
+  retry_attempts: 3      # Moins de tentatives
+  retry_delay: 5         # Délai plus long
+  
+  # === OPTIMISATIONS ===
+  sort_by_size: true     # Traiter les petits fichiers en premier
+  compression_adaptive: true  # Ignore les fichiers déjà compressés
+  
+  # === FICHIERS À IGNORER (étendu) ===
+  skip_patterns:
+    - "*.tmp"
+    - "*.cache"
+    - "*.log"
+    - "*.temp"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.bak"
+    - "*.backup"
+    - "*.old"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+    - ".git/"
+    - ".svn/"
+    - ".hg/"
+    - "node_modules/"
+    - ".npm/"
+    - ".cache/"
+    - "__pycache__/"
+    - "*.zip"           # Fichiers déjà compressés
+    - "*.tar.gz"
+    - "*.rar"
+    - "*.7z"
+    - "*.bz2"
+    - "*.xz"
+    - "*.iso"           # Images disque
+    - "*.vmdk"
+    - "*.vdi"
+    - "*.qcow2"
+    - "*.raw"
+    - "*.mp4"           # Vidéos
+    - "*.avi"
+    - "*.mkv"
+    - "*.mov"
+    - "*.wmv"
+    - "*.flv"
+    - "*.webm"
+    - "*.jpg"           # Images
+    - "*.jpeg"
+    - "*.png"
+    - "*.gif"
+    - "*.bmp"
+    - "*.tiff"
+    - "*.pdf"           # Documents
+    - "*.doc"
+    - "*.docx"
+    - "*.xls"
+    - "*.xlsx"
+    - "*.ppt"
+    - "*.pptx"
+
+retention:
+  days: 30
+  max_backups: 5        # Moins de sauvegardes à garder

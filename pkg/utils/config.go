@@ -12,10 +12,11 @@ type Config struct {
 	Storage struct {
 		Type string `mapstructure:"type"`
 		// S3 fields
-		Bucket    string `mapstructure:"bucket"`
-		Region    string `mapstructure:"region"`
-		AccessKey string `mapstructure:"access_key"`
-		SecretKey string `mapstructure:"secret_key"`
+		Bucket       string `mapstructure:"bucket"`
+		Region       string `mapstructure:"region"`
+		AccessKey    string `mapstructure:"access_key"`
+		SecretKey    string `mapstructure:"secret_key"`
+		StorageClass string `mapstructure:"storage_class"` // S3 storage class (STANDARD, GLACIER, etc.)
 		// Common fields
 		Endpoint string `mapstructure:"endpoint"`
 		// WebDAV fields

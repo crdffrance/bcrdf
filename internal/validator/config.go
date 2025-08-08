@@ -76,14 +76,15 @@ func (v *ConfigValidator) validateStorage(verbose bool) error {
 
 // validateS3Storage valide les paramètres S3
 func (v *ConfigValidator) validateS3Storage(storageConfig struct {
-	Type      string `mapstructure:"type"`
-	Bucket    string `mapstructure:"bucket"`
-	Region    string `mapstructure:"region"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	Endpoint  string `mapstructure:"endpoint"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
+	Type         string `mapstructure:"type"`
+	Bucket       string `mapstructure:"bucket"`
+	Region       string `mapstructure:"region"`
+	AccessKey    string `mapstructure:"access_key"`
+	SecretKey    string `mapstructure:"secret_key"`
+	StorageClass string `mapstructure:"storage_class"`
+	Endpoint     string `mapstructure:"endpoint"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
 }, verbose bool) error {
 	// Vérifier le bucket
 	if storageConfig.Bucket == "" {
@@ -99,21 +100,38 @@ func (v *ConfigValidator) validateS3Storage(storageConfig struct {
 	if storageConfig.Endpoint != "" {
 		_, err := url.Parse(storageConfig.Endpoint)
 		if err != nil {
-			return fmt.Errorf("endpoint S3 invalide: %w", err)
+			return fmt.Errorf("endpoint S3 invalide: %s", storageConfig.Endpoint)
 		}
 	}
 
-	// Vérifier les clés d'accès
+	// Vérifier les credentials
 	if storageConfig.AccessKey == "" {
 		return fmt.Errorf("access key required for S3")
 	}
-
 	if storageConfig.SecretKey == "" {
 		return fmt.Errorf("secret key required for S3")
 	}
 
+	// Vérifier la classe de stockage si spécifiée
+	if storageConfig.StorageClass != "" {
+		validClasses := []string{"STANDARD", "GLACIER", "DEEP_ARCHIVE", "INTELLIGENT_TIERING"}
+		isValid := false
+		for _, class := range validClasses {
+			if storageConfig.StorageClass == class {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			return fmt.Errorf("invalid storage class: %s (valid: %s)", storageConfig.StorageClass, strings.Join(validClasses, ", "))
+		}
+	}
+
 	if verbose {
-		utils.Info("✅ Parameters valid")
+		utils.Info("✅ S3 storage configuration validated")
+		if storageConfig.StorageClass != "" {
+			utils.Info("   Storage class: %s", storageConfig.StorageClass)
+		}
 	}
 
 	return nil
@@ -121,36 +139,37 @@ func (v *ConfigValidator) validateS3Storage(storageConfig struct {
 
 // validateWebDAVStorage valide les paramètres WebDAV
 func (v *ConfigValidator) validateWebDAVStorage(storageConfig struct {
-	Type      string `mapstructure:"type"`
-	Bucket    string `mapstructure:"bucket"`
-	Region    string `mapstructure:"region"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	Endpoint  string `mapstructure:"endpoint"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
+	Type         string `mapstructure:"type"`
+	Bucket       string `mapstructure:"bucket"`
+	Region       string `mapstructure:"region"`
+	AccessKey    string `mapstructure:"access_key"`
+	SecretKey    string `mapstructure:"secret_key"`
+	StorageClass string `mapstructure:"storage_class"`
+	Endpoint     string `mapstructure:"endpoint"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
 }, verbose bool) error {
 	// Vérifier l'endpoint
 	if storageConfig.Endpoint == "" {
-		return fmt.Errorf("URL du serveur WebDAV requise")
+		return fmt.Errorf("endpoint required for WebDAV")
 	}
 
+	// Vérifier l'URL
 	_, err := url.Parse(storageConfig.Endpoint)
 	if err != nil {
-		return fmt.Errorf("URL WebDAV invalide: %w", err)
+		return fmt.Errorf("invalid WebDAV endpoint: %s", storageConfig.Endpoint)
 	}
 
-	// Vérifier les identifiants
+	// Vérifier les credentials
 	if storageConfig.Username == "" {
-		return fmt.Errorf("nom d'utilisateur requis pour WebDAV")
+		return fmt.Errorf("username required for WebDAV")
 	}
-
 	if storageConfig.Password == "" {
-		return fmt.Errorf("mot de passe requis pour WebDAV")
+		return fmt.Errorf("password required for WebDAV")
 	}
 
 	if verbose {
-		utils.Info("✅ Parameters valid")
+		utils.Info("✅ WebDAV storage configuration validated")
 	}
 
 	return nil

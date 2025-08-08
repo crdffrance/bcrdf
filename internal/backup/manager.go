@@ -1567,6 +1567,29 @@ func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.Ind
 	currentIndex.TotalFiles = int64(len(currentIndex.Files))
 	currentIndex.TotalSize = m.calculateTotalSize(currentIndex.Files)
 
+	// Vérifier que tous les fichiers ont des StorageKey valides
+	validFiles := 0
+	emptyKeys := 0
+	for _, file := range currentIndex.Files {
+		if file.StorageKey == "" {
+			emptyKeys++
+		} else {
+			validFiles++
+		}
+	}
+
+	if verbose {
+		utils.Info("📊 Index validation:")
+		utils.Info("   - Total files: %d", len(currentIndex.Files))
+		utils.Info("   - Valid storage keys: %d", validFiles)
+		utils.Info("   - Empty storage keys: %d", emptyKeys)
+	}
+
+	if emptyKeys > 0 {
+		utils.Warn("⚠️  WARNING: %d files have empty storage keys!", emptyKeys)
+		utils.Warn("   This indicates a backup processing issue.")
+	}
+
 	// Sauvegarder l'index
 	if err := m.indexMgr.SaveIndex(currentIndex); err != nil {
 		return fmt.Errorf("error saving de l'index: %w", err)

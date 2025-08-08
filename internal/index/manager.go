@@ -614,6 +614,9 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 			return nil
 		}
 
+		// Générer la StorageKey immédiatement
+		entry.StorageKey = entry.GetStorageKey()
+
 		index.Files = append(index.Files, *entry)
 		index.TotalFiles++
 		index.TotalSize += entry.Size

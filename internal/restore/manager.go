@@ -87,6 +87,26 @@ func (m *Manager) RestoreBackup(backupID, destinationPath string, verbose bool) 
 
 	if verbose {
 		utils.Info("✅ Task 2 completed: Index loaded with %d files", backupIndex.TotalFiles)
+
+		// Analyser les clés de stockage
+		validFiles := 0
+		emptyKeys := 0
+		for _, file := range backupIndex.Files {
+			if file.StorageKey == "" {
+				emptyKeys++
+			} else {
+				validFiles++
+			}
+		}
+		utils.Info("📊 Index analysis:")
+		utils.Info("   - Total files: %d", len(backupIndex.Files))
+		utils.Info("   - Valid storage keys: %d", validFiles)
+		utils.Info("   - Empty storage keys: %d", emptyKeys)
+
+		if emptyKeys > 0 {
+			utils.Warn("⚠️  WARNING: %d files have empty storage keys!", emptyKeys)
+			utils.Warn("   This indicates a corrupted or incomplete backup index.")
+		}
 	}
 
 	// Vérifier que le répertoire de destination existe ou le créer
@@ -496,6 +516,7 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 
 	// Vérifier s'il y a eu des erreurs
 	errorCount := 0
+	skippedCount := 0
 	for err := range errors {
 		errorCount++
 		if verbose {
@@ -505,11 +526,25 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 		}
 	}
 
+	// Compter les fichiers ignorés
+	for _, file := range backupIndex.Files {
+		if file.Path == "" || file.StorageKey == "" {
+			skippedCount++
+		}
+	}
+
 	if verbose {
 		if errorCount > 0 {
 			utils.Warn("   - Completed with %d errors", errorCount)
 		} else {
 			utils.Info("   - All files restored successfully")
+		}
+		if skippedCount > 0 {
+			utils.Warn("   - Skipped %d files with empty storage keys", skippedCount)
+		}
+	} else {
+		if skippedCount > 0 {
+			utils.ProgressInfo(fmt.Sprintf("Skipped %d files with empty storage keys", skippedCount))
 		}
 	}
 

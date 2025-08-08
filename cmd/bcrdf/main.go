@@ -475,14 +475,13 @@ func runUpdate(force, verbose bool) error {
 	// Get current version
 	currentVersion := Version
 	
-	// Skip update check for development versions
+	// Allow updates even for development versions
 	if strings.Contains(currentVersion, "dirty") || strings.Contains(currentVersion, "dev") {
 		if verbose {
-			utils.Info("🛠️  Development version detected, skipping update check")
+			utils.Info("🛠️  Development version detected - updates still allowed")
 		} else {
-			utils.ProgressInfo("🛠️  Development version - skipping update check")
+			utils.ProgressInfo("🛠️  Development version - updates allowed")
 		}
-		return nil
 	}
 	
 	if verbose {

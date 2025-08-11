@@ -1,0 +1,77 @@
+# BCRDF example configuration (copy and edit as needed)
+
+storage:
+  # Storage type: s3 or webdav
+  type: s3
+
+  # S3 settings (Scaleway/AWS compatible)
+  bucket: YOUR_BUCKET_NAME
+  region: YOUR_REGION          # ex: fr-par, us-east-1
+  endpoint: YOUR_S3_ENDPOINT   # ex: https://s3.fr-par.scw.cloud
+  access_key: YOUR_ACCESS_KEY
+  secret_key: YOUR_SECRET_KEY
+  storage_class: STANDARD      # optional: STANDARD, GLACIER, etc.
+
+  # WebDAV settings (use if type=webdav)
+  username: ""
+  password: ""
+
+backup:
+  # Generate a 32-byte hex key (use `./bcrdf init -i` or scripts/generate-key.sh)
+  encryption_key: YOUR_32_BYTE_HEX_KEY
+  encryption_algo: aes-256-gcm   # or xchacha20-poly1305
+
+  # Performance & reliability
+  compression_level: 1           # 1-9 (1 fastest)
+  max_workers: 16
+  checksum_mode: fast            # full | fast | metadata
+  buffer_size: 32MB
+  batch_size: 25
+  batch_size_limit: 8MB
+
+  # Chunking & limits
+  chunk_size: 32MB
+  chunk_size_large: 50MB
+  large_file_threshold: 100MB
+  ultra_large_threshold: 1GB
+  memory_limit: 256MB
+
+  # Networking & retries
+  network_timeout: 120           # seconds
+  retry_attempts: 5
+  retry_delay: 2
+
+  # Optimizations
+  cache_enabled: true
+  cache_max_size: 10000
+  cache_max_age: 60
+  compression_adaptive: true
+  sort_by_size: true
+
+  # Skip patterns
+  skip_patterns:
+    - '*.tmp'
+    - '*.cache'
+    - '*.log'
+    - .DS_Store
+    - Thumbs.db
+    - '*.swp'
+    - '*.swo'
+    - node_modules/
+    - .git/
+    - __pycache__/
+    - '*.zip'
+    - '*.tar.gz'
+    - '*.rar'
+    - '*.7z'
+    - '*.iso'
+    - '*.vmdk'
+    - '*.vdi'
+    - '*.qcow2'
+    - '*.raw'
+
+retention:
+  days: 30
+  max_backups: 10
+
+

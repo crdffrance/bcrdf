@@ -1,11 +1,13 @@
 package restore
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -206,7 +208,7 @@ func (m *Manager) RestoreFile(backupID, filePath, destinationPath string) error 
 	}
 
 	// Restaurer le fichier
-	if err := m.restoreSingleFile(*targetFile, backupID, destinationPath); err != nil {
+	if err := m.restoreSingleFile(*targetFile, backupID, destinationPath, nil, true); err != nil {
 		return fmt.Errorf("error during la restoration du fichier: %w", err)
 	}
 
@@ -461,10 +463,13 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 	var wg sync.WaitGroup
 	errors := make(chan error, len(backupIndex.Files))
 
-	// Barre de progression pour le mode non-verbeux
-	var progressBar *utils.ProgressBar
+	// Barre de progression intégrée pour le mode non-verbeux
+	var progressBar *utils.IntegratedProgressBar
 	if !verbose {
-		progressBar = utils.NewProgressBar(int64(len(backupIndex.Files)))
+		progressBar = utils.NewIntegratedProgressBar(backupIndex.TotalSize)
+		progressBar.SetMaxActiveFiles(5) // Limiter à 5 fichiers actifs simultanément
+		// Afficher les barres fichiers uniquement si l'opération dure > 3s
+		progressBar.SetDisplayThreshold(3 * time.Second)
 	}
 
 	completed := int64(0)
@@ -488,20 +493,47 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 			// Mettre à jour les statistiques
 			stats.UpdateStats(f.Path, f.Size, index+1, len(backupIndex.Files))
 
+			// Ajouter le fichier à la barre de progression
+			if !verbose && progressBar != nil {
+				fileName := filepath.Base(f.Path)
+				progressBar.SetCurrentFile(fileName, f.Size)
+			}
+
 			if verbose {
 				utils.Debug("   - Processing file: %s (%.2f MB)", filepath.Base(f.Path), float64(f.Size)/1024/1024)
 			}
 
-			if err := m.restoreSingleFile(f, backupIndex.BackupID, destinationPath); err != nil {
+			// Construire un chemin relatif par rapport à la racine de sauvegarde pour restaurer sous destinationPath
+			relPath := f.Path
+			sourceRoot := filepath.Clean(backupIndex.SourcePath)
+			// Si le chemin source est absolu et que f.Path commence par sourceRoot, le tronquer
+			if filepath.IsAbs(relPath) {
+				prefix := sourceRoot + string(os.PathSeparator)
+				if strings.HasPrefix(relPath, prefix) {
+					relPath = relPath[len(prefix):]
+				} else if strings.HasPrefix(relPath, sourceRoot) {
+					relPath = relPath[len(sourceRoot):]
+					relPath = strings.TrimLeft(relPath, string(os.PathSeparator))
+				}
+			}
+			// Utiliser une copie avec le chemin relatif
+			f2 := f
+			f2.Path = relPath
+
+			if err := m.restoreSingleFile(f2, backupIndex.BackupID, destinationPath, progressBar, verbose); err != nil {
 				errors <- fmt.Errorf("error during la restoration de %s: %w", f.Path, err)
 			}
 
-			// Mettre à jour la progression
-			if !verbose {
+			// Mettre à jour la progression globale
+			if !verbose && progressBar != nil {
 				completedMutex.Lock()
-				completed++
-				progressBar.Update(completed)
+				completed += f.Size
+				progressBar.UpdateGlobal(completed)
 				completedMutex.Unlock()
+
+				// Marquer le fichier comme terminé (utiliser le nom de base pour la cohérence)
+				fileName := filepath.Base(f.Path)
+				progressBar.RemoveFile(fileName)
 			}
 		}(file, i)
 	}
@@ -553,27 +585,30 @@ func (m *Manager) restoreFiles(backupIndex *index.BackupIndex, destinationPath s
 }
 
 // restoreSingleFile restaure un seul fichier
-func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationPath string) error {
+func (m *Manager) restoreSingleFile(file index.FileEntry, backupID, destinationPath string, progressBar *utils.IntegratedProgressBar, verbose bool) error {
 	// Vérifier que la clé de stockage n'est pas vide
 	if file.StorageKey == "" {
 		utils.Warn("Skipping file with empty storage key: %s", file.Path)
 		return nil
 	}
 
+	// Reconstruct the full storage key with prefix
+	fullStorageKey := fmt.Sprintf("data/%s/%s", backupID, file.StorageKey)
+
 	// Vérifier si c'est un fichier chunké en essayant de télécharger les métadonnées
-	metadataKey := fmt.Sprintf("%s.metadata", file.StorageKey)
+	metadataKey := fmt.Sprintf("%s.metadata", fullStorageKey)
 	_, err := m.storageClient.Download(metadataKey)
 	if err == nil {
 		// C'est un fichier chunké, le restaurer en chunks
-		return m.restoreChunkedFile(file, backupID, destinationPath)
+		return m.restoreChunkedFile(file, backupID, destinationPath, progressBar, verbose)
 	}
 
 	// Fichier normal, traitement standard
-	return m.restoreStandardFile(file, backupID, destinationPath)
+	return m.restoreStandardFile(file, backupID, destinationPath, progressBar, verbose)
 }
 
 // restoreChunkedFile restaure un fichier qui a été sauvegardé en chunks avec monitoring
-func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destinationPath string) error {
+func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destinationPath string, progressBar *utils.IntegratedProgressBar, verbose bool) error {
 	fileName := filepath.Base(file.Path)
 	utils.Debug("🔄 Restoring chunked file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
 
@@ -585,11 +620,14 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 	// Arrêter le monitoring à la fin de la fonction
 	defer stats.StopMonitoring()
 
+	// Reconstruct the full storage key with prefix
+	fullStorageKey := fmt.Sprintf("data/%s/%s", backupID, file.StorageKey)
+
 	// Download metadata first
-	metadataKey := fmt.Sprintf("%s.metadata", file.StorageKey)
+	metadataKey := fmt.Sprintf("%s.metadata", fullStorageKey)
 	utils.Debug("📥 Downloading metadata file: %s", metadataKey)
 
-	metadataBytes, err := m.storageClient.Download(metadataKey)
+	metadataBytes, err := m.downloadWithRetry(metadataKey)
 	if err != nil {
 		return fmt.Errorf("error downloading metadata: %w", err)
 	}
@@ -609,7 +647,7 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 
 	utils.Debug("📊 Chunked file restoration plan:")
 	utils.Debug("   - Total chunks: %d", totalChunks)
-	utils.Debug("   - Storage key: %s", file.StorageKey)
+	utils.Debug("   - Storage key: %s", fullStorageKey)
 	utils.Debug("   - Destination: %s", filepath.Join(destinationPath, file.Path))
 
 	// Create destination file
@@ -630,19 +668,23 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 	m.startChunkMonitoring(stats, true)
 
 	// Download and assemble chunks
-	utils.ProgressStep(fmt.Sprintf("Restoring chunked file: %s (%d chunks)", fileName, totalChunks))
+	if verbose {
+		utils.ProgressStep(fmt.Sprintf("Restoring chunked file: %s (%d chunks)", fileName, totalChunks))
+	}
 
 	totalRestored := int64(0)
 	for chunkNum := 0; chunkNum < totalChunks; chunkNum++ {
-		chunkKey := fmt.Sprintf("%s.chunk.%03d", file.StorageKey, chunkNum)
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", fullStorageKey, chunkNum)
 
-		progress := float64(chunkNum+1) / float64(totalChunks) * 100
-		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%)", fileName, chunkNum+1, totalChunks, progress))
+		if verbose {
+			progress := float64(chunkNum+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%)", fileName, chunkNum+1, totalChunks, progress))
+		}
 
 		utils.Debug("📥 Downloading chunk %d/%d: %s", chunkNum+1, totalChunks, chunkKey)
 
 		// Download chunk
-		chunkData, err := m.storageClient.Download(chunkKey)
+		chunkData, err := m.downloadWithRetry(chunkKey)
 		if err != nil {
 			return fmt.Errorf("error downloading chunk %d: %w", chunkNum, err)
 		}
@@ -659,6 +701,17 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 		}
 		utils.Debug("✅ Chunk %d decrypted successfully", chunkNum+1)
 
+		// Decompress chunk if compression was enabled during backup
+		if m.config.Backup.CompressionLevel > 0 {
+			utils.Debug("🗜️ Decompressing chunk %d...", chunkNum+1)
+			decompressed, err := m.compressor.Decompress(decryptedChunk)
+			if err != nil {
+				return fmt.Errorf("error decompressing chunk %d: %w", chunkNum, err)
+			}
+			decryptedChunk = decompressed
+			utils.Debug("✅ Chunk %d decompressed successfully", chunkNum+1)
+		}
+
 		// Write chunk to file
 		utils.Debug("📝 Writing chunk %d to file...", chunkNum+1)
 		if _, err := destFile.Write(decryptedChunk); err != nil {
@@ -667,23 +720,30 @@ func (m *Manager) restoreChunkedFile(file index.FileEntry, backupID, destination
 		utils.Debug("✅ Chunk %d written to file successfully", chunkNum+1)
 
 		totalRestored += int64(len(decryptedChunk))
+
+		// Mettre à jour la barre de progression avec la progression réelle
+		if !verbose && progressBar != nil {
+			progressBar.UpdateChunkWithName(file.Path, totalRestored, file.Size)
+		}
+
 		utils.Debug("📊 Progress: %.2f MB / %.2f MB", float64(totalRestored)/1024/1024, float64(file.Size)/1024/1024)
 	}
 
 	utils.ProgressSuccess(fmt.Sprintf("Chunked file restored: %s (%.2f MB in %d chunks)",
 		fileName, float64(file.Size)/1024/1024, totalChunks))
 
-	utils.Debug("🎯 Chunked file restoration completed: %s -> %s", file.StorageKey, destPath)
+	utils.Debug("🎯 Chunked file restoration completed: %s -> %s", fullStorageKey, destPath)
 	return nil
 }
 
 // restoreStandardFile restaure un fichier standard (non-chunké)
-func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinationPath string) error {
+func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinationPath string, progressBar *utils.IntegratedProgressBar, verbose bool) error {
 	utils.Debug("🔄 Restoring standard file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
 
-	// Download encrypted file
-	utils.Debug("📥 Downloading file from storage: %s", file.StorageKey)
-	encryptedData, err := m.storageClient.Download(file.StorageKey)
+	// Reconstruct the full storage key with prefix
+	fullStorageKey := fmt.Sprintf("data/%s/%s", backupID, file.StorageKey)
+	utils.Debug("📥 Downloading file from storage: %s", fullStorageKey)
+	encryptedData, err := m.downloadWithRetry(fullStorageKey)
 	if err != nil {
 		return fmt.Errorf("error downloading file: %w", err)
 	}
@@ -722,7 +782,7 @@ func (m *Manager) restoreStandardFile(file index.FileEntry, backupID, destinatio
 	}
 	utils.Debug("✅ File written successfully")
 
-	utils.Debug("🎯 Standard file restoration completed: %s -> %s", file.StorageKey, destPath)
+	utils.Debug("🎯 Standard file restoration completed: %s -> %s", fullStorageKey, destPath)
 	return nil
 }
 
@@ -733,7 +793,100 @@ func (m *Manager) restorePermissions(filePath string, file index.FileEntry) erro
 	return nil
 }
 
-// loadFromStorage charge des données depuis le stockage
+// loadFromStorage charge un objet depuis le stockage
 func (m *Manager) loadFromStorage(key string) ([]byte, error) {
 	return m.storageClient.Download(key)
+}
+
+// downloadWithRetry télécharge avec retry et timeout
+func (m *Manager) downloadWithRetry(key string) ([]byte, error) {
+	// Timeout pour éviter les blocages infinis
+	timeout := time.Duration(m.config.Backup.NetworkTimeout) * time.Second
+	if timeout == 0 {
+		timeout = 30 * time.Second // Default 30 seconds
+	}
+
+	// Configuration du retry
+	maxRetries := m.config.Backup.RetryAttempts
+	if maxRetries <= 0 {
+		maxRetries = 1 // Au moins 1 tentative
+	}
+
+	baseDelay := time.Duration(m.config.Backup.RetryDelay) * time.Second
+	if baseDelay <= 0 {
+		baseDelay = 2 * time.Second // Default 2 seconds
+	}
+
+	var lastError error
+
+	// Boucle de retry avec backoff exponentiel
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Calculer le délai avec backoff exponentiel
+			delay := baseDelay * time.Duration(1<<(attempt-1))
+			if delay > 60*time.Second { // Cap à 60 secondes
+				delay = 60 * time.Second
+			}
+
+			utils.Debug("🔄 Download retry attempt %d/%d for %s after %v delay",
+				attempt+1, maxRetries, key, delay)
+
+			time.Sleep(delay)
+		}
+
+		// Créer un contexte avec timeout pour cette tentative
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+		// Canal pour le résultat
+		resultChan := make(chan downloadResult, 1)
+
+		// Exécuter le téléchargement en arrière-plan
+		go func() {
+			data, err := m.storageClient.Download(key)
+			resultChan <- downloadResult{data: data, err: err}
+		}()
+
+		// Attendre avec timeout
+		select {
+		case result := <-resultChan:
+			cancel()
+			if result.err == nil {
+				// Succès !
+				if attempt > 0 {
+					utils.Info("✅ Download succeeded on retry attempt %d for %s", attempt+1, key)
+				}
+				return result.data, nil
+			}
+
+			// Erreur, la stocker pour le log final
+			lastError = result.err
+
+			// Log de l'erreur
+			if attempt < maxRetries-1 {
+				utils.Warn("⚠️  Download failed for %s (attempt %d/%d): %v",
+					key, attempt+1, maxRetries, result.err)
+			}
+
+		case <-ctx.Done():
+			cancel()
+			lastError = fmt.Errorf("download timeout after %v", timeout)
+
+			if attempt < maxRetries-1 {
+				utils.Warn("⚠️  Download timeout for %s (attempt %d/%d) after %v",
+					key, attempt+1, maxRetries, timeout)
+			}
+		}
+	}
+
+	// Toutes les tentatives ont échoué
+	utils.Error("❌ Download failed for %s after %d attempts. Last error: %v",
+		key, maxRetries, lastError)
+
+	return nil, fmt.Errorf("download failed after %d attempts for %s: %w", maxRetries, key, lastError)
+}
+
+// downloadResult contient le résultat d'un téléchargement
+type downloadResult struct {
+	data []byte
+	err  error
 }

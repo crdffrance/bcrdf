@@ -72,4 +72,18 @@ bcrdf-windows-x64-*
 
 # Temporary files
 verify-*.sh
-test-*.sh 
+test-*.sh # Local configs
+/config.yaml
+/config-test.yaml
+/config-test-local.yaml
+/config-scaleway-test.yaml
+configs/config-user-*.yaml
+# Local builds
+/bcrdf
+/build
+/dist
+# Local tests and restores
+/test-*
+/restore-*
+# Large local test binaries
+/test-*.bin

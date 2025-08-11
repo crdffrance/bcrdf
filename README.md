@@ -127,10 +127,17 @@ MIT — see [LICENSE](LICENSE).
 
 ## Environment Variables
 
-- S3 credentials (used if not provided in config):
-  - `AWS_ACCESS_KEY_ID`
-  - `AWS_SECRET_ACCESS_KEY`
-- Run in non-interactive environments (CI/cron): use `-c configs/config.yaml` and avoid interactive flags.
+These environment variables can be used for production deployments (CI/CD, containers) to avoid committing secrets:
+
+- Storage (S3-compatible):
+  - `AWS_ACCESS_KEY_ID`: access key (used if `storage.access_key` is empty)
+  - `AWS_SECRET_ACCESS_KEY`: secret key (used if `storage.secret_key` is empty)
+
+- CLI behavior:
+  - Always pass `-c configs/config.yaml` in non-interactive environments.
+  - Prefer setting secrets via environment or vault; keep the YAML in Git without credentials.
+
+Note: You can still fully configure credentials in `configs/config.yaml`. Environment variables take precedence only when the corresponding YAML fields are empty, providing a safe fallback for production.
 
 ## Commands Reference
 

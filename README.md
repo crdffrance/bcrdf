@@ -5,6 +5,11 @@
 
 BCRDF (Backup Copy with Redundant Data Format) is a fast, index-based backup tool with encryption, compression, chunking and retention. It supports S3-compatible storage and WebDAV.
 
+<p align="left">
+  <img src="assets/logo.svg" alt="BCRDF Logo" width="560" />
+  <br/>
+</p>
+
 ## Key Features
 
 - Index-based incremental backups

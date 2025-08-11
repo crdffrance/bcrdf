@@ -242,9 +242,18 @@ func validateWebDAVConfig(config *Config) error {
 
 // validateCommonConfig valide les paramètres communs
 func validateCommonConfig(config *Config) error {
-	if config.Backup.EncryptionKey == "" || config.Backup.EncryptionKey == "your-encryption-key-here" {
-		return fmt.Errorf("encryption key is required")
-	}
+    // Allow env override for encryption settings
+    if algoEnv := os.Getenv("BCRDF_ENCRYPTION_ALGO"); algoEnv != "" {
+        config.Backup.EncryptionAlgo = algoEnv
+    }
+
+    if config.Backup.EncryptionKey == "" || config.Backup.EncryptionKey == "your-encryption-key-here" {
+        if keyEnv := os.Getenv("BCRDF_ENCRYPTION_KEY"); keyEnv != "" {
+            config.Backup.EncryptionKey = keyEnv
+        } else {
+            return fmt.Errorf("encryption key is required")
+        }
+    }
 
 	if config.Backup.CompressionLevel < 1 || config.Backup.CompressionLevel > 22 {
 		return fmt.Errorf("compression level must be between 1 et 22")

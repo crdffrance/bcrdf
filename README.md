@@ -139,6 +139,10 @@ These environment variables can be used for production deployments (CI/CD, conta
 
 Note: You can still fully configure credentials in `configs/config.yaml`. Environment variables take precedence only when the corresponding YAML fields are empty, providing a safe fallback for production.
 
+Encryption overrides:
+- `BCRDF_ENCRYPTION_KEY`: overrides `backup.encryption_key` (recommended in production; 32‑byte hex)
+- `BCRDF_ENCRYPTION_ALGO`: overrides `backup.encryption_algo` (values: `aes-256-gcm`, `xchacha20-poly1305`)
+
 ## Commands Reference
 
 - Backup: `./bcrdf backup -n <name> -s <source> -c configs/config.yaml`

@@ -183,7 +183,7 @@ func (m *Manager) SaveIndex(index *BackupIndex) error {
 		return fmt.Errorf("error serializing index: %w", err)
 	}
 
-		// Initialiser le chiffreur si nécessaire
+	// Initialiser le chiffreur si nécessaire
 	if err := m.initializeEncryptor(); err != nil {
 		return fmt.Errorf("error initializing encryptor for index saving: %w", err)
 	}
@@ -628,4 +628,898 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 
 		return nil
 	})
+}
+
+// CleanOrphanedFiles nettoie les fichiers orphelins sur le stockage
+// qui ne correspondent pas à l'index de sauvegarde
+// Si backupID est vide, nettoie toutes les sauvegardes
+func (m *Manager) CleanOrphanedFiles(backupID string, dryRun, verbose bool) error {
+	if verbose {
+		utils.ProgressStep("Loading backup index...")
+	}
+
+	// Charger l'index de sauvegarde
+	index, err := m.LoadIndex(backupID)
+	if err != nil {
+		return fmt.Errorf("failed to load index for backup %s: %w", backupID, err)
+	}
+
+	if verbose {
+		utils.ProgressDone("Index loaded successfully")
+		utils.ProgressStep("Initializing storage client...")
+	}
+
+	// Initialiser le client de stockage
+	if m.storageClient == nil {
+		if m.config == nil {
+			config, err := utils.LoadConfig(m.configFile)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			m.config = config
+		}
+
+		storageClient, err := storage.NewStorageClient(m.config)
+		if err != nil {
+			return fmt.Errorf("failed to initialize storage client: %w", err)
+		}
+		m.storageClient = storageClient
+	}
+
+	if verbose {
+		utils.ProgressDone("Storage client initialized")
+		utils.ProgressStep("Scanning storage for orphaned files...")
+	}
+
+	// Créer un ensemble des clés de stockage valides depuis l'index
+	validKeys := make(map[string]bool)
+	for _, file := range index.Files {
+		if !file.IsDirectory {
+			// Construire la clé de stockage complète avec le préfixe data/backupID/
+			fullStorageKey := fmt.Sprintf("data/%s/%s", backupID, file.StorageKey)
+			validKeys[fullStorageKey] = true
+
+			// Si c'est un gros fichier, ajouter aussi tous ses chunks comme valides
+			if file.Size > 100*1024*1024 { // 100MB - seuil pour les fichiers chunkés
+				// Ajouter le fichier de métadonnées
+				metadataKey := fmt.Sprintf("%s.metadata", fullStorageKey)
+				validKeys[metadataKey] = true
+
+				// Ajouter tous les chunks possibles (on ne connaît pas le nombre exact)
+				// On va ajouter jusqu'à 1000 chunks pour couvrir la plupart des cas
+				for chunkNum := 0; chunkNum < 1000; chunkNum++ {
+					chunkKey := fmt.Sprintf("%s.chunk.%03d", fullStorageKey, chunkNum)
+					validKeys[chunkKey] = true
+				}
+			}
+		}
+	}
+
+	// Lister tous les objets sur le stockage avec le préfixe du backup
+	// Utiliser le préfixe data/ au lieu de backups/ pour correspondre à la structure réelle
+	backupPrefix := fmt.Sprintf("data/%s/", backupID)
+	objects, err := m.storageClient.ListObjects(backupPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to list objects on storage: %w", err)
+	}
+
+	// Identifier les fichiers orphelins
+	var orphanedFiles []storage.ObjectInfo
+	for _, obj := range objects {
+		// Ignorer les fichiers d'index et de métadonnées
+		if strings.HasSuffix(obj.Key, ".index") || strings.HasSuffix(obj.Key, ".metadata") {
+			continue
+		}
+
+		// Vérifier si la clé existe dans l'index
+		if !validKeys[obj.Key] {
+			orphanedFiles = append(orphanedFiles, obj)
+		}
+	}
+
+	if verbose {
+		utils.ProgressDone(fmt.Sprintf("Found %d orphaned files", len(orphanedFiles)))
+	}
+
+	// Afficher les fichiers orphelins
+	if len(orphanedFiles) == 0 {
+		utils.ProgressSuccess("No orphaned files found. Storage is clean!")
+		return nil
+	}
+
+	// Afficher le résumé
+	totalOrphanedSize := int64(0)
+	for _, obj := range orphanedFiles {
+		totalOrphanedSize += obj.Size
+	}
+
+	fmt.Printf("\n🔍 Orphaned files found:\n")
+	fmt.Printf("%s\n", strings.Repeat("-", 80))
+	fmt.Printf("Total files: %d\n", len(orphanedFiles))
+	fmt.Printf("Total size: %s\n", formatBytes(totalOrphanedSize))
+	fmt.Printf("Backup ID: %s\n", backupID)
+	fmt.Printf("Mode: %s\n", map[bool]string{true: "DRY RUN (no files will be deleted)", false: "LIVE (files will be deleted)"}[dryRun])
+	fmt.Printf("%s\n", strings.Repeat("-", 80))
+
+	// Afficher la liste des fichiers orphelins
+	if verbose {
+		fmt.Printf("\n📋 Orphaned files list:\n")
+		for i, obj := range orphanedFiles {
+			fmt.Printf("%3d. %s (%s)\n", i+1, obj.Key, formatBytes(obj.Size))
+		}
+		fmt.Println()
+	}
+
+	// Demander confirmation si pas en mode dry-run
+	if !dryRun {
+		fmt.Printf("⚠️  WARNING: This will permanently delete %d orphaned files (%s)\n", len(orphanedFiles), formatBytes(totalOrphanedSize))
+		fmt.Printf("Are you sure you want to continue? (yes/no): ")
+
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(strings.TrimSpace(response)) != "yes" {
+			utils.ProgressWarning("Operation cancelled by user")
+			return nil
+		}
+	}
+
+	// Supprimer les fichiers orphelins
+	if verbose {
+		utils.ProgressStep("Deleting orphaned files...")
+	}
+
+	deletedCount := 0
+	deletedSize := int64(0)
+	errors := make([]string, 0)
+
+	progressBar := utils.NewProgressBar(int64(len(orphanedFiles)))
+
+	for i, obj := range orphanedFiles {
+		if verbose {
+			utils.ProgressStep(fmt.Sprintf("Deleting %s (%s)...", obj.Key, formatBytes(obj.Size)))
+		}
+
+		if !dryRun {
+			err := m.storageClient.DeleteObject(obj.Key)
+			if err != nil {
+				errorMsg := fmt.Sprintf("failed to delete %s: %v", obj.Key, err)
+				errors = append(errors, errorMsg)
+				if verbose {
+					utils.ProgressError(errorMsg)
+				}
+			} else {
+				deletedCount++
+				deletedSize += obj.Size
+				if verbose {
+					utils.ProgressDone(fmt.Sprintf("Deleted %s", obj.Key))
+				}
+			}
+		} else {
+			deletedCount++
+			deletedSize += obj.Size
+		}
+
+		if !verbose {
+			progressBar.Update(int64(i + 1))
+		}
+	}
+
+	if !verbose {
+		progressBar.Finish()
+	}
+
+	// Afficher le résumé final
+	fmt.Printf("\n%s\n", strings.Repeat("=", 80))
+	if dryRun {
+		fmt.Printf("🧹 CLEAN OPERATION COMPLETED (DRY RUN)\n")
+	} else {
+		fmt.Printf("🧹 CLEAN OPERATION COMPLETED\n")
+	}
+	fmt.Printf("%s\n", strings.Repeat("=", 80))
+	fmt.Printf("Backup ID: %s\n", backupID)
+	fmt.Printf("Files processed: %d\n", len(orphanedFiles))
+	fmt.Printf("Files deleted: %d\n", deletedCount)
+	fmt.Printf("Size freed: %s\n", formatBytes(deletedSize))
+
+	if len(errors) > 0 {
+		fmt.Printf("Errors encountered: %d\n", len(errors))
+		for _, err := range errors {
+			fmt.Printf("  • %s\n", err)
+		}
+	}
+
+	if dryRun {
+		utils.ProgressInfo("This was a dry run. No files were actually deleted.")
+	} else {
+		utils.ProgressSuccess("Orphaned files cleanup completed successfully!")
+	}
+
+	return nil
+}
+
+// CleanAllBackups nettoie toutes les sauvegardes et supprime celles sans index
+func (m *Manager) CleanAllBackups(dryRun, verbose, removeOrphaned bool) error {
+	if verbose {
+		utils.ProgressStep("Scanning all backups...")
+	}
+
+	// Lister toutes les sauvegardes disponibles
+	backups, err := m.listIndexes()
+	if err != nil {
+		return fmt.Errorf("failed to list backups: %w", err)
+	}
+
+	if verbose {
+		utils.ProgressDone(fmt.Sprintf("Found %d backups with indexes", len(backups)))
+	}
+
+	// Initialiser le client de stockage si nécessaire
+	if m.storageClient == nil {
+		if m.config == nil {
+			config, err := utils.LoadConfig(m.configFile)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			m.config = config
+		}
+
+		storageClient, err := storage.NewStorageClient(m.config)
+		if err != nil {
+			return fmt.Errorf("failed to initialize storage client: %w", err)
+		}
+		m.storageClient = storageClient
+	}
+
+	// Lister tous les objets sur le stockage
+	if verbose {
+		utils.ProgressStep("Scanning storage for all objects...")
+	}
+
+	// Analyser la structure du stockage pour trouver les fichiers de sauvegarde
+	var allObjects []storage.ObjectInfo
+	var storagePrefix string
+
+	// Approche ultra-robuste : utiliser le scan global comme ScanAllObjects
+	globalObjects, err := m.storageClient.ListObjects("")
+	if err == nil && len(globalObjects) > 0 {
+		allObjects = globalObjects
+		storagePrefix = "global"
+		if verbose {
+			utils.ProgressDone(fmt.Sprintf("Found %d objects in global scan", len(globalObjects)))
+		}
+	} else {
+		// Fallback : essayer des préfixes spécifiques
+		if verbose {
+			utils.ProgressStep("Global scan failed, trying specific prefixes...")
+		}
+
+		// Essayer différents préfixes pour voir ce qui existe
+		prefixes := []string{"data/", "indexes/", "backups/", "files/", "storage/"}
+
+		for _, prefix := range prefixes {
+			objects, err := m.storageClient.ListObjects(prefix)
+			if err == nil && len(objects) > 0 {
+				allObjects = append(allObjects, objects...)
+				if verbose {
+					utils.ProgressDone(fmt.Sprintf("Found %d objects in %s prefix", len(objects), prefix))
+				}
+			}
+		}
+
+		// Si on n'a trouvé aucun objet, essayer de comprendre pourquoi
+		if len(allObjects) == 0 {
+			if verbose {
+				utils.ProgressWarning("No objects found in any storage prefix")
+				utils.ProgressStep("This might indicate:")
+				utils.ProgressStep("  - Files are stored with a different prefix")
+				utils.ProgressStep("  - Storage bucket is empty")
+				utils.ProgressStep("  - Access permissions issue")
+			}
+
+			// Essayer de lister avec différents préfixes pour diagnostiquer
+			testPrefixes := []string{"data/", "files/", "storage/", "backup/", "snapshots/"}
+			for _, prefix := range testPrefixes {
+				testObjects, err := m.storageClient.ListObjects(prefix)
+				if err == nil && len(testObjects) > 0 {
+					if verbose {
+						utils.ProgressDone(fmt.Sprintf("Found %d objects in %s prefix", len(testObjects), prefix))
+					}
+					allObjects = testObjects
+					storagePrefix = prefix
+					break
+				}
+			}
+		}
+	}
+
+	// Approche 3: Recherche spécifique pour les répertoires test* dans data/
+	if verbose {
+		utils.ProgressStep("Searching specifically for test* directories...")
+	}
+
+	// Essayer des préfixes de plus en plus spécifiques pour test-20250810-214443
+	testPrefixes := []string{
+		"data/test",
+		"data/test-",
+		"data/test-2025",
+		"data/test-20250810",
+		"data/test-20250810-",
+		"data/test-20250810-21",
+		"data/test-20250810-214",
+		"data/test-20250810-2144",
+		"data/test-20250810-21444",
+		"data/test-20250810-214443",
+	}
+
+	for _, testPrefix := range testPrefixes {
+		testObjects, err := m.storageClient.ListObjects(testPrefix)
+		if err == nil && len(testObjects) > 0 {
+			allObjects = append(allObjects, testObjects...)
+			if verbose {
+				utils.ProgressDone(fmt.Sprintf("Found %d objects in %s prefix", len(testObjects), testPrefix))
+			}
+		}
+	}
+
+	if verbose {
+		utils.ProgressDone(fmt.Sprintf("Using storage prefix: %s", storagePrefix))
+
+		// Afficher quelques exemples d'objets pour le débogage
+		if len(allObjects) > 0 {
+			utils.ProgressStep("Sample objects found:")
+			maxSamples := 5
+			if len(allObjects) < maxSamples {
+				maxSamples = len(allObjects)
+			}
+			for i := 0; i < maxSamples; i++ {
+				utils.ProgressDone(fmt.Sprintf("  %s (%s)", allObjects[i].Key, formatBytes(allObjects[i].Size)))
+			}
+			if len(allObjects) > maxSamples {
+				utils.ProgressDone(fmt.Sprintf("  ... and %d more objects", len(allObjects)-maxSamples))
+			}
+		}
+	}
+
+	// Créer un ensemble des clés valides depuis tous les index
+	validKeys := make(map[string]bool)
+	validBackupIDs := make(map[string]bool)
+	storageKeyPatterns := make(map[string]int)
+
+	if verbose {
+		utils.ProgressStep("Analyzing backup indexes for storage patterns...")
+	}
+
+	for _, backup := range backups {
+		validBackupIDs[backup.BackupID] = true
+
+		// Charger l'index pour obtenir les clés de stockage
+		index, err := m.LoadIndex(backup.BackupID)
+		if err != nil {
+			if verbose {
+				utils.ProgressWarning(fmt.Sprintf("Failed to load index for %s: %v", backup.BackupID, err))
+			}
+			continue
+		}
+
+		for _, file := range index.Files {
+			if !file.IsDirectory {
+				// Construire la clé de stockage complète avec le préfixe data/backupID/
+				fullStorageKey := fmt.Sprintf("data/%s/%s", backup.BackupID, file.StorageKey)
+				validKeys[fullStorageKey] = true
+
+				// Si c'est un gros fichier, ajouter aussi tous ses chunks comme valides
+				if file.Size > 100*1024*1024 { // 100MB - seuil pour les fichiers chunkés
+					// Ajouter le fichier de métadonnées
+					metadataKey := fmt.Sprintf("%s.metadata", fullStorageKey)
+					validKeys[metadataKey] = true
+
+					// Ajouter tous les chunks possibles (on ne connaît pas le nombre exact)
+					// On va ajouter jusqu'à 1000 chunks pour couvrir la plupart des cas
+					for chunkNum := 0; chunkNum < 1000; chunkNum++ {
+						chunkKey := fmt.Sprintf("%s.chunk.%03d", fullStorageKey, chunkNum)
+						validKeys[chunkKey] = true
+					}
+				}
+
+				// Analyser le pattern de la clé de stockage
+				parts := strings.Split(file.StorageKey, "/")
+				if len(parts) > 0 {
+					pattern := parts[0]
+					storageKeyPatterns[pattern]++
+				}
+			}
+		}
+	}
+
+	if verbose {
+		utils.ProgressDone(fmt.Sprintf("Found %d valid storage keys", len(validKeys)))
+		if len(storageKeyPatterns) > 0 {
+			utils.ProgressStep("Storage key patterns found:")
+			for pattern, count := range storageKeyPatterns {
+				utils.ProgressDone(fmt.Sprintf("  %s: %d files", pattern, count))
+			}
+		}
+	}
+
+	// Identifier les fichiers orphelins et les sauvegardes sans index
+	var orphanedFiles []storage.ObjectInfo
+	var orphanedBackups []string
+	orphanedBackupObjects := make(map[string][]storage.ObjectInfo)
+
+	for _, obj := range allObjects {
+		// Ignorer les fichiers d'index et de métadonnées
+		if strings.HasSuffix(obj.Key, ".index") || strings.HasSuffix(obj.Key, ".metadata") ||
+			strings.HasSuffix(obj.Key, ".json") || strings.Contains(obj.Key, "indexes/") {
+			continue
+		}
+
+		// Identifier l'ID de sauvegarde selon la structure
+		var backupID string
+		parts := strings.Split(obj.Key, "/")
+
+		if storagePrefix == "data/" && len(parts) >= 2 {
+			// Structure: data/backup-id/file
+			backupID = parts[1]
+		} else if storagePrefix == "backups/" && len(parts) >= 2 {
+			// Structure: backups/backup-id/file
+			backupID = parts[1]
+		} else if len(parts) >= 1 {
+			// Structure: backup-id/file ou file
+			if strings.Contains(parts[0], "-") {
+				// Essayer d'extraire l'ID depuis le nom de fichier
+				backupID = parts[0]
+			} else if len(parts) >= 2 {
+				backupID = parts[1]
+			}
+		}
+
+		// Si on n'a pas pu identifier l'ID, ignorer
+		if backupID == "" {
+			if verbose {
+				utils.ProgressWarning(fmt.Sprintf("Could not identify backup ID for: %s", obj.Key))
+			}
+			continue
+		}
+
+		// Vérifier si la clé existe dans un index valide
+		if !validKeys[obj.Key] {
+			orphanedFiles = append(orphanedFiles, obj)
+		}
+
+		// Vérifier si la sauvegarde a un index
+		if !validBackupIDs[backupID] {
+			if orphanedBackupObjects[backupID] == nil {
+				orphanedBackupObjects[backupID] = []storage.ObjectInfo{}
+				orphanedBackups = append(orphanedBackups, backupID)
+			}
+			orphanedBackupObjects[backupID] = append(orphanedBackupObjects[backupID], obj)
+		}
+	}
+
+	// Afficher le résumé
+	totalOrphanedSize := int64(0)
+	totalOrphanedBackupSize := int64(0)
+
+	for _, obj := range orphanedFiles {
+		totalOrphanedSize += obj.Size
+	}
+
+	for _, backupID := range orphanedBackups {
+		for _, obj := range orphanedBackupObjects[backupID] {
+			totalOrphanedBackupSize += obj.Size
+		}
+	}
+
+	if verbose {
+		utils.ProgressDone(fmt.Sprintf("Found %d orphaned files (%s) and %d orphaned backups (%s)",
+			len(orphanedFiles), formatBytes(totalOrphanedSize),
+			len(orphanedBackups), formatBytes(totalOrphanedBackupSize)))
+	}
+
+	// Afficher le rapport détaillé
+	fmt.Printf("\n🔍 CLEANUP ANALYSIS REPORT\n")
+	fmt.Printf("%s\n", strings.Repeat("=", 80))
+	fmt.Printf("Backups with indexes: %d\n", len(backups))
+	fmt.Printf("Orphaned files: %d (%s)\n", len(orphanedFiles), formatBytes(totalOrphanedSize))
+	fmt.Printf("Orphaned backups: %d (%s)\n", len(orphanedBackups), formatBytes(totalOrphanedBackupSize))
+	fmt.Printf("Total space to reclaim: %s\n", formatBytes(totalOrphanedSize+totalOrphanedBackupSize))
+	fmt.Printf("Mode: %s\n", map[bool]string{true: "DRY RUN (no files will be deleted)", false: "LIVE (files will be deleted)"}[dryRun])
+	fmt.Printf("%s\n", strings.Repeat("=", 80))
+
+	// Afficher les sauvegardes orphelines
+	if len(orphanedBackups) > 0 {
+		fmt.Printf("\n📋 Orphaned backups (no index found):\n")
+		for i, backupID := range orphanedBackups {
+			backupSize := int64(0)
+			for _, obj := range orphanedBackupObjects[backupID] {
+				backupSize += obj.Size
+			}
+			fmt.Printf("%3d. %s (%s, %d files)\n", i+1, backupID, formatBytes(backupSize), len(orphanedBackupObjects[backupID]))
+		}
+	}
+
+	// Afficher les fichiers orphelins
+	if len(orphanedFiles) > 0 {
+		fmt.Printf("\n📋 Orphaned files (not in any index):\n")
+		for i, obj := range orphanedFiles {
+			fmt.Printf("%3d. %s (%s)\n", i+1, obj.Key, formatBytes(obj.Size))
+		}
+	}
+
+	// Si aucun fichier à nettoyer
+	if len(orphanedFiles) == 0 && len(orphanedBackups) == 0 {
+		utils.ProgressSuccess("No cleanup needed. All storage is consistent!")
+		return nil
+	}
+
+	// Demander confirmation si pas en mode dry-run
+	if !dryRun {
+		fmt.Printf("\n⚠️  WARNING: This will permanently delete:\n")
+		if len(orphanedFiles) > 0 {
+			fmt.Printf("  • %d orphaned files (%s)\n", len(orphanedFiles), formatBytes(totalOrphanedSize))
+		}
+		if len(orphanedBackups) > 0 && removeOrphaned {
+			fmt.Printf("  • %d orphaned backups (%s)\n", len(orphanedBackups), formatBytes(totalOrphanedBackupSize))
+		}
+		fmt.Printf("Total space to reclaim: %s\n", formatBytes(totalOrphanedSize+totalOrphanedBackupSize))
+		fmt.Printf("Are you sure you want to continue? (yes/no): ")
+
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(strings.TrimSpace(response)) != "yes" {
+			utils.ProgressWarning("Operation cancelled by user")
+			return nil
+		}
+	}
+
+	// Procéder au nettoyage
+	if verbose {
+		utils.ProgressStep("Starting cleanup process...")
+	}
+
+	deletedFiles := 0
+	deletedSize := int64(0)
+	deletedBackups := 0
+	deletedBackupSize := int64(0)
+	errors := make([]string, 0)
+
+	// Supprimer les fichiers orphelins
+	if len(orphanedFiles) > 0 {
+		if verbose {
+			utils.ProgressStep("Deleting orphaned files...")
+		}
+
+		progressBar := utils.NewProgressBar(int64(len(orphanedFiles)))
+
+		for i, obj := range orphanedFiles {
+			if verbose {
+				utils.ProgressStep(fmt.Sprintf("Deleting %s (%s)...", obj.Key, formatBytes(obj.Size)))
+			}
+
+			if !dryRun {
+				err := m.storageClient.DeleteObject(obj.Key)
+				if err != nil {
+					errorMsg := fmt.Sprintf("failed to delete %s: %v", obj.Key, err)
+					errors = append(errors, errorMsg)
+					if verbose {
+						utils.ProgressError(errorMsg)
+					}
+				} else {
+					deletedFiles++
+					deletedSize += obj.Size
+					if verbose {
+						utils.ProgressDone(fmt.Sprintf("Deleted %s", obj.Key))
+					}
+				}
+			} else {
+				deletedFiles++
+				deletedSize += obj.Size
+			}
+
+			if !verbose {
+				progressBar.Update(int64(i + 1))
+			}
+		}
+
+		if !verbose {
+			progressBar.Finish()
+		}
+	}
+
+	// Supprimer les sauvegardes orphelines si demandé
+	if len(orphanedBackups) > 0 && removeOrphaned {
+		if verbose {
+			utils.ProgressStep("Deleting orphaned backups...")
+		}
+
+		progressBar := utils.NewProgressBar(int64(len(orphanedBackups)))
+
+		for i, backupID := range orphanedBackups {
+			backupObjects := orphanedBackupObjects[backupID]
+			if verbose {
+				utils.ProgressStep(fmt.Sprintf("Deleting orphaned backup %s (%d files, %s)...",
+					backupID, len(backupObjects), formatBytes(totalOrphanedBackupSize)))
+			}
+
+			// Supprimer tous les objets de la sauvegarde orpheline
+			backupDeleted := 0
+			backupDeletedSize := int64(0)
+
+			for _, obj := range backupObjects {
+				if !dryRun {
+					err := m.storageClient.DeleteObject(obj.Key)
+					if err != nil {
+						errorMsg := fmt.Sprintf("failed to delete %s: %v", obj.Key, err)
+						errors = append(errors, errorMsg)
+						if verbose {
+							utils.ProgressError(errorMsg)
+						}
+					} else {
+						backupDeleted++
+						backupDeletedSize += obj.Size
+					}
+				} else {
+					backupDeleted++
+					backupDeletedSize += obj.Size
+				}
+			}
+
+			if backupDeleted > 0 {
+				deletedBackups++
+				deletedBackupSize += backupDeletedSize
+				if verbose {
+					utils.ProgressDone(fmt.Sprintf("Deleted orphaned backup %s (%d files, %s)",
+						backupID, backupDeleted, formatBytes(backupDeletedSize)))
+				}
+			}
+
+			if !verbose {
+				progressBar.Update(int64(i + 1))
+			}
+		}
+
+		if !verbose {
+			progressBar.Finish()
+		}
+	}
+
+	// Afficher le résumé final
+	fmt.Printf("\n%s\n", strings.Repeat("=", 80))
+	if dryRun {
+		fmt.Printf("🧹 COMPLETE CLEANUP ANALYSIS COMPLETED (DRY RUN)\n")
+	} else {
+		fmt.Printf("🧹 COMPLETE CLEANUP OPERATION COMPLETED\n")
+	}
+	fmt.Printf("%s\n", strings.Repeat("=", 80))
+	fmt.Printf("Files deleted: %d (%s)\n", deletedFiles, formatBytes(deletedSize))
+	fmt.Printf("Orphaned backups deleted: %d (%s)\n", deletedBackups, formatBytes(deletedBackupSize))
+	fmt.Printf("Total space reclaimed: %s\n", formatBytes(deletedSize+deletedBackupSize))
+
+	if len(errors) > 0 {
+		fmt.Printf("Errors encountered: %d\n", len(errors))
+		for _, err := range errors {
+			fmt.Printf("  • %s\n", err)
+		}
+	}
+
+	if dryRun {
+		utils.ProgressInfo("This was a dry run. No files were actually deleted.")
+	} else {
+		utils.ProgressSuccess("Complete cleanup operation completed successfully!")
+	}
+
+	return nil
+}
+
+// ScanAllObjects liste tous les objets dans le stockage pour diagnostic
+func (m *Manager) ScanAllObjects(verbose bool) error {
+	if verbose {
+		utils.ProgressStep("Scanning all objects in storage...")
+	}
+
+	// Initialiser le client de stockage si nécessaire
+	if m.storageClient == nil {
+		if m.config == nil {
+			config, err := utils.LoadConfig(m.configFile)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			m.config = config
+		}
+
+		storageClient, err := storage.NewStorageClient(m.config)
+		if err != nil {
+			return fmt.Errorf("failed to initialize storage client: %w", err)
+		}
+		m.storageClient = storageClient
+	}
+
+	// Lister tous les objets dans le stockage
+	if verbose {
+		utils.ProgressStep("Listing all objects...")
+	}
+
+	// Approche 1: Scan global sans préfixe (le plus exhaustif)
+	var allObjects []storage.ObjectInfo
+
+	// Essayer d'abord un scan global
+	globalObjects, err := m.storageClient.ListObjects("")
+	if err == nil && len(globalObjects) > 0 {
+		allObjects = append(allObjects, globalObjects...)
+		if verbose {
+			utils.ProgressDone(fmt.Sprintf("Found %d objects in global scan", len(globalObjects)))
+		}
+	}
+
+	// Approche 2: Si le scan global ne fonctionne pas, essayer des préfixes spécifiques
+	if len(allObjects) == 0 {
+		if verbose {
+			utils.ProgressStep("Global scan failed, trying specific prefixes...")
+		}
+
+		// Essayer différents préfixes pour voir ce qui existe
+		prefixes := []string{"", "data/", "indexes/", "backups/", "files/", "storage/"}
+
+		for _, prefix := range prefixes {
+			objects, err := m.storageClient.ListObjects(prefix)
+			if err == nil && len(objects) > 0 {
+				allObjects = append(allObjects, objects...)
+				if verbose {
+					utils.ProgressDone(fmt.Sprintf("Found %d objects in %s prefix", len(objects), prefix))
+				}
+			}
+		}
+	}
+
+	// Approche 3: Recherche spécifique pour les répertoires test* dans data/
+	if verbose {
+		utils.ProgressStep("Searching specifically for test* directories...")
+	}
+
+	// Essayer des préfixes de plus en plus spécifiques pour test-20250810-214443
+	testPrefixes := []string{
+		"data/test",
+		"data/test-",
+		"data/test-2025",
+		"data/test-20250810",
+		"data/test-20250810-",
+		"data/test-20250810-21",
+		"data/test-20250810-214",
+		"data/test-20250810-2144",
+		"data/test-20250810-21444",
+		"data/test-20250810-214443",
+	}
+
+	for _, testPrefix := range testPrefixes {
+		testObjects, err := m.storageClient.ListObjects(testPrefix)
+		if err == nil && len(testObjects) > 0 {
+			allObjects = append(allObjects, testObjects...)
+			if verbose {
+				utils.ProgressDone(fmt.Sprintf("Found %d objects in %s prefix", len(testObjects), testPrefix))
+			}
+		}
+	}
+
+	// Approche 4: Essayer de lister tous les objets avec des préfixes de caractères
+	if verbose {
+		utils.ProgressStep("Trying character-based prefixes...")
+	}
+
+	// Essayer de lister avec des préfixes de caractères pour couvrir tous les cas
+	charPrefixes := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"}
+	for _, char := range charPrefixes {
+		charObjects, err := m.storageClient.ListObjects(char)
+		if err == nil && len(charObjects) > 0 {
+			allObjects = append(allObjects, charObjects...)
+			if verbose {
+				utils.ProgressDone(fmt.Sprintf("Found %d objects with prefix %s", len(charObjects), char))
+			}
+		}
+	}
+
+	if len(allObjects) == 0 {
+		utils.Info("No objects found in storage")
+		return nil
+	}
+
+	// Dédupliquer les objets (au cas où plusieurs préfixes retourneraient les mêmes objets)
+	objectMap := make(map[string]storage.ObjectInfo)
+	for _, obj := range allObjects {
+		objectMap[obj.Key] = obj
+	}
+
+	// Convertir la map en slice
+	uniqueObjects := make([]storage.ObjectInfo, 0, len(objectMap))
+	for _, obj := range objectMap {
+		uniqueObjects = append(uniqueObjects, obj)
+	}
+	allObjects = uniqueObjects
+
+	// Afficher le résumé
+	fmt.Printf("\n📊 Storage Scan Results:\n")
+	fmt.Printf("Found %d total unique objects\n", len(allObjects))
+	fmt.Printf("Scan methods used: Global scan + specific prefixes + test* search + character prefixes\n\n")
+
+	// Grouper les objets par préfixe pour une meilleure lisibilité
+	objectsByPrefix := make(map[string][]storage.ObjectInfo)
+	for _, obj := range allObjects {
+		// Extraire le préfixe principal (premier niveau)
+		parts := strings.Split(obj.Key, "/")
+		if len(parts) > 0 {
+			prefix := parts[0] + "/"
+			objectsByPrefix[prefix] = append(objectsByPrefix[prefix], obj)
+		} else {
+			objectsByPrefix["root"] = append(objectsByPrefix["root"], obj)
+		}
+	}
+
+	// Afficher les objets par préfixe
+	for prefix, objects := range objectsByPrefix {
+		if len(objects) == 0 {
+			continue
+		}
+
+		fmt.Printf("📁 %s (%d objects):\n", prefix, len(objects))
+
+		// Trier par taille (plus gros en premier)
+		sort.Slice(objects, func(i, j int) bool {
+			return objects[i].Size > objects[j].Size
+		})
+
+		// Afficher les premiers objets (max 15 par préfixe pour plus de visibilité)
+		maxDisplay := 15
+		if len(objects) < maxDisplay {
+			maxDisplay = len(objects)
+		}
+
+		for i := 0; i < maxDisplay; i++ {
+			obj := objects[i]
+			sizeStr := formatBytes(obj.Size)
+			fmt.Printf("  %s (%s)\n", obj.Key, sizeStr)
+		}
+
+		if len(objects) > maxDisplay {
+			fmt.Printf("  ... and %d more objects\n", len(objects)-maxDisplay)
+		}
+		fmt.Println()
+	}
+
+	// Calculer la taille totale
+	var totalSize int64
+	for _, obj := range allObjects {
+		totalSize += obj.Size
+	}
+
+	fmt.Printf("💾 Total storage used: %s\n", formatBytes(totalSize))
+
+	// Recherche spécifique pour test-20250810-214443
+	fmt.Printf("\n🔍 Specific search for test-20250810-214443:\n")
+	found := false
+	for _, obj := range allObjects {
+		if strings.Contains(obj.Key, "test-20250810-214443") {
+			fmt.Printf("✅ FOUND: %s (%s)\n", obj.Key, formatBytes(obj.Size))
+			found = true
+		}
+	}
+
+	if !found {
+		fmt.Printf("❌ NOT FOUND: No objects containing 'test-20250810-214443' were found\n")
+		fmt.Printf("   This suggests the directory may have been removed or is in a different location\n")
+	}
+
+	return nil
+}
+
+// formatBytes formate les bytes en unités lisibles
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

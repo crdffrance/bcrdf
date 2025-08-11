@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"bcrdf/internal/backup"
+	"bcrdf/internal/health"
 	"bcrdf/internal/index"
 	"bcrdf/internal/restore"
 	"bcrdf/internal/retention"
@@ -23,7 +24,7 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-	Version   = "2.4.0"
+    Version   = "2.4.1"
 	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )
@@ -83,8 +84,24 @@ Key features:
 				return fmt.Errorf("backup name is required")
 			}
 
+			// Afficher le démarrage de la sauvegarde
+			if !verbose {
+				fmt.Printf("🚀 Starting backup: %s -> %s\n", source, name)
+			}
+
 			backupManager := backup.NewManager(configFile)
-			return backupManager.CreateBackup(source, name, verbose)
+			err := backupManager.CreateBackup(source, name, verbose)
+
+			// Afficher le résultat final
+			if !verbose {
+				if err != nil {
+					fmt.Printf("\n❌ Backup failed: %v\n", err)
+				} else {
+					fmt.Printf("\n✅ Backup completed successfully!\n")
+				}
+			}
+
+			return err
 		},
 	}
 	backupCmd.Flags().StringP("source", "s", "", "Source path to backup")
@@ -108,8 +125,24 @@ Key features:
 				return fmt.Errorf("destination path is required")
 			}
 
+			// Afficher le démarrage de la restauration
+			if !verbose {
+				fmt.Printf("🔄 Starting restore: %s -> %s\n", backupID, destination)
+			}
+
 			restoreManager := restore.NewManager(configFile)
-			return restoreManager.RestoreBackup(backupID, destination, verbose)
+			err := restoreManager.RestoreBackup(backupID, destination, verbose)
+
+			// Afficher le résultat final
+			if !verbose {
+				if err != nil {
+					fmt.Printf("\n❌ Restore failed: %v\n", err)
+				} else {
+					fmt.Printf("\n✅ Restore completed successfully!\n")
+				}
+			}
+
+			return err
 		},
 	}
 	restoreCmd.Flags().StringP("backup-id", "b", "", "Backup ID to restore")
@@ -147,8 +180,25 @@ Key features:
 				return fmt.Errorf("backup ID is required")
 			}
 
+			// Afficher le démarrage de la suppression
+			if !verbose {
+				fmt.Printf("🗑️  Starting deletion of backup: %s\n", backupID)
+				fmt.Printf("📊 Progress will be displayed below:\n\n")
+			}
+
 			backupManager := backup.NewManager(configFile)
-			return backupManager.DeleteBackup(backupID)
+			err := backupManager.DeleteBackup(backupID)
+
+			// Afficher le résultat final
+			if !verbose {
+				if err != nil {
+					fmt.Printf("\n❌ Deletion failed: %v\n", err)
+				} else {
+					fmt.Printf("\n✅ Backup deleted successfully!\n")
+				}
+			}
+
+			return err
 		},
 	}
 	deleteCmd.Flags().StringP("backup-id", "b", "", "Backup ID to delete")
@@ -250,13 +300,109 @@ Key features:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			info, _ := cmd.Flags().GetBool("info")
 			apply, _ := cmd.Flags().GetBool("apply")
-			return runRetention(configFile, info, apply, verbose)
+
+			// Afficher le démarrage de la gestion de rétention
+			if !verbose && apply {
+				fmt.Printf("🧹 Starting retention policy management\n")
+				fmt.Printf("📊 Progress will be displayed below:\n\n")
+			}
+
+			err := runRetention(configFile, info, apply, verbose)
+
+			// Afficher le résultat final
+			if !verbose && apply {
+				if err != nil {
+					fmt.Printf("\n❌ Retention policy failed: %v\n", err)
+				} else {
+					fmt.Printf("\n✅ Retention policy applied successfully!\n")
+				}
+			}
+
+			return err
 		},
 	}
 	retentionCmd.Flags().BoolP("info", "i", false, "Show retention information")
 	retentionCmd.Flags().BoolP("apply", "a", false, "Apply retention policies")
 
+	// Health command
+	var healthCmd = &cobra.Command{
+		Use:   "health",
+		Short: "Check backup health",
+		Long:  "Verifies the integrity and health of all backups",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			testRestore, _ := cmd.Flags().GetBool("test-restore")
+			fastMode, _ := cmd.Flags().GetBool("fast")
+			return runHealth(configFile, testRestore, verbose, fastMode)
+		},
+	}
+	healthCmd.Flags().BoolP("test-restore", "t", false, "Test restore functionality on sample files")
+	healthCmd.Flags().BoolP("fast", "f", false, "Fast mode: check only a random sample of files")
 
+	// Clean command
+	var cleanCmd = &cobra.Command{
+		Use:   "clean",
+		Short: "Clean orphaned files from storage",
+		Long:  "Removes files from storage that are not referenced in the backup index",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			backupID, _ := cmd.Flags().GetString("backup-id")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			allBackups, _ := cmd.Flags().GetBool("all")
+			removeOrphaned, _ := cmd.Flags().GetBool("remove-orphaned")
+
+			// Afficher le démarrage du nettoyage
+			if !verbose {
+				if allBackups {
+					fmt.Printf("🧹 Starting cleanup of all backups\n")
+				} else {
+					fmt.Printf("🧹 Starting cleanup of backup: %s\n", backupID)
+				}
+				if dryRun {
+					fmt.Printf("🔍 Dry run mode - no files will be deleted\n")
+				}
+				fmt.Printf("📊 Progress will be displayed below:\n\n")
+			}
+
+			indexManager := index.NewManager(configFile)
+
+			var err error
+			// Si --all est spécifié, nettoyer toutes les sauvegardes
+			if allBackups {
+				err = indexManager.CleanAllBackups(dryRun, verbose, removeOrphaned)
+			} else {
+				// Sinon, nettoyer une sauvegarde spécifique
+				if backupID == "" {
+					return fmt.Errorf("backup ID is required when not using --all flag")
+				}
+				err = indexManager.CleanOrphanedFiles(backupID, dryRun, verbose)
+			}
+
+			// Afficher le résultat final
+			if !verbose {
+				if err != nil {
+					fmt.Printf("\n❌ Cleanup failed: %v\n", err)
+				} else {
+					fmt.Printf("\n✅ Cleanup completed successfully!\n")
+				}
+			}
+
+			return err
+		},
+	}
+	cleanCmd.Flags().StringP("backup-id", "b", "", "Backup ID to clean (required when not using --all)")
+	cleanCmd.Flags().BoolP("dry-run", "d", false, "Dry run mode (show what would be deleted without actually deleting)")
+	cleanCmd.Flags().BoolP("all", "a", false, "Clean all backups and remove orphaned ones without index")
+	cleanCmd.Flags().BoolP("remove-orphaned", "r", false, "Remove orphaned backups that have no index (use with --all)")
+
+	// Scan command
+	var scanCmd = &cobra.Command{
+		Use:   "scan",
+		Short: "Scan all objects in storage",
+		Long:  "Lists all objects in storage to help identify orphaned files",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			indexManager := index.NewManager(configFile)
+			return indexManager.ScanAllObjects(verbose)
+		},
+	}
 
 	// Version command
 	versionCmd := &cobra.Command{
@@ -276,6 +422,9 @@ Key features:
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(retentionCmd)
+	rootCmd.AddCommand(healthCmd)
+	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -411,4 +560,30 @@ func runRetention(configPath string, info, apply, verbose bool) error {
 	return nil
 }
 
+func runHealth(configPath string, testRestore, verbose, fastMode bool) error {
+	// Load configuration
+	config, err := utils.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("error loading configuration: %w", err)
+	}
 
+	// Initialize storage client
+	storageClient, err := storage.NewStorageClient(config)
+	if err != nil {
+		return fmt.Errorf("error initializing storage: %w", err)
+	}
+
+	// Initialize index manager
+	indexMgr := index.NewManager(configPath)
+
+	// Create health manager
+	healthMgr := health.NewManager(config, indexMgr, storageClient)
+
+	report, err := healthMgr.CheckHealth(verbose, testRestore, fastMode)
+	if err != nil {
+		return fmt.Errorf("error checking health: %w", err)
+	}
+
+	healthMgr.PrintReport(report, verbose)
+	return nil
+}

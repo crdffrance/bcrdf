@@ -31,12 +31,13 @@ type FileBatch struct {
 
 // Manager gère les opérations de sauvegarde
 type Manager struct {
-	configFile    string
-	config        *utils.Config
-	indexMgr      *index.Manager
-	encryptor     *crypto.EncryptorV2
-	compressor    *compression.Compressor
-	storageClient storage.Client
+	configFile       string
+	config           *utils.Config
+	indexMgr         *index.Manager
+	encryptor        *crypto.EncryptorV2
+	compressor       *compression.Compressor
+	storageClient    storage.Client
+	multiProgressBar *utils.IntegratedProgressBar // Barre de progression intégrée pour les gros fichiers
 }
 
 // NewManager crée un nouveau gestionnaire de sauvegarde
@@ -80,7 +81,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 		return nil
 	}
 
-	if err := m.executeBackup(currentIndex, diff, backupID, verbose); err != nil {
+	if err := m.executeBackup(currentIndex, diff, backupID, backupName, verbose); err != nil {
 		return err
 	}
 
@@ -88,7 +89,7 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 
 	// Apply retention policy only if a backup was actually created
 	if totalFilesToBackup > 0 {
-		if err := m.applyRetentionPolicy(verbose); err != nil {
+		if err := m.applyRetentionPolicyForBackup(backupName, verbose); err != nil {
 			// Don't fail the backup if retention fails, just warn
 			if verbose {
 				utils.Warn("Retention policy application failed: %v", err)
@@ -103,15 +104,23 @@ func (m *Manager) CreateBackup(sourcePath, backupName string, verbose bool) erro
 
 // applyRetentionPolicy applique la politique de rétention après une sauvegarde
 func (m *Manager) applyRetentionPolicy(verbose bool) error {
+	return m.applyRetentionPolicyForBackup("", verbose)
+}
+
+// applyRetentionPolicyForBackup applique la politique de rétention pour un nom de backup spécifique
+func (m *Manager) applyRetentionPolicyForBackup(backupName string, verbose bool) error {
 	if verbose {
 		utils.Info("📋 Task 7: Applying retention policy")
 		utils.Info("   - Loading retention configuration")
+		if backupName != "" {
+			utils.Info("   - Backup name: %s", backupName)
+		}
 		utils.Info("   - Finding old backups")
 		utils.Info("   - Deleting expired backups")
 	}
 
 	retentionMgr := retention.NewManager(m.config, m.indexMgr, m.storageClient)
-	err := retentionMgr.ApplyRetentionPolicy(verbose)
+	err := retentionMgr.ApplyRetentionPolicyForBackup(backupName, verbose)
 
 	if verbose {
 		if err != nil {
@@ -593,10 +602,15 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 	var wg sync.WaitGroup
 	errors := make(chan error, len(allFiles))
 
-	// Barre de progression pour le mode non-verbeux
-	var progressBar *utils.ProgressBar
+	// Barre de progression intégrée pour le mode non-verbeux
+	var multiProgressBar *utils.IntegratedProgressBar
 	if !verbose {
-		progressBar = utils.NewProgressBar(int64(len(allFiles)))
+		multiProgressBar = utils.NewIntegratedProgressBar(stats.TotalSize)
+		multiProgressBar.SetMaxActiveFiles(5) // Afficher max 5 fichiers simultanément
+
+		// Afficher le démarrage
+		utils.ProgressInfo(fmt.Sprintf("Starting backup of %d files (%.2f MB total)",
+			len(allFiles), float64(stats.TotalSize)/1024/1024))
 	}
 
 	completed := int64(0)
@@ -628,20 +642,27 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 			// Mettre à jour les statistiques
 			stats.UpdateStats(f.Path, f.Size, index+1, len(allFiles))
 
+			// Ne pas afficher de barre pour les petits fichiers; les fonctions dédiées géreront l'affichage si nécessaire
+
 			if verbose {
 				utils.Debug("   - Processing file: %s (%.2f MB)", filepath.Base(f.Path), float64(f.Size)/1024/1024)
 			}
 
-			if err := m.backupSingleFile(f, backupID); err != nil {
+			// Sauvegarder le fichier avec suivi de progression
+			if err := m.backupSingleFileWithMultiProgress(f, backupID, multiProgressBar, verbose); err != nil {
 				errors <- fmt.Errorf("error saving de %s: %w", f.Path, err)
 			}
 
-			// Mettre à jour la progression
-			if !verbose {
+			// Mettre à jour la progression globale
+			if !verbose && multiProgressBar != nil {
 				completedMutex.Lock()
-				completed++
-				progressBar.Update(completed)
+				completed += f.Size
+				multiProgressBar.UpdateGlobal(completed)
 				completedMutex.Unlock()
+
+				// Marquer le fichier comme terminé (utiliser le nom de base pour la cohérence)
+				fileName := filepath.Base(f.Path)
+				multiProgressBar.RemoveFile(fileName)
 			}
 		}(file, i)
 	}
@@ -662,9 +683,9 @@ func (m *Manager) backupFiles(added, modified []index.FileEntry, backupID string
 
 	close(errors)
 
-	// Terminer la barre de progression
-	if !verbose && progressBar != nil {
-		progressBar.Finish()
+	// Terminer la barre de progression multi-fichiers
+	if !verbose && multiProgressBar != nil {
+		multiProgressBar.Finish()
 	}
 
 	// Vérifier s'il y a eu des erreurs
@@ -699,8 +720,8 @@ func (m *Manager) calculateTotalSize(files []index.FileEntry) int64 {
 	return total
 }
 
-// backupSingleFile sauvegarde un seul fichier
-func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error {
+// backupSingleFileWithMultiProgress sauvegarde un seul fichier avec la barre de progression intégrée
+func (m *Manager) backupSingleFileWithMultiProgress(file index.FileEntry, backupID string, multiProgressBar *utils.IntegratedProgressBar, verbose bool) error {
 	fileName := filepath.Base(file.Path)
 	utils.Debug("   - Processing file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
 
@@ -726,18 +747,6 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 		return nil
 	}
 
-	// OPTIMISATION: Check if the file has been modified before deciding on processing
-	// Cette vérification n'est valide que si l'index précédent est correctement chargé
-	// Pour l'instant, on désactive cette optimisation pour éviter les incohérences
-	/*
-		if !m.isFileModifiedSinceLastBackup(file, fileInfo) {
-			utils.Debug("✅ Skipping unchanged file: %s (%d bytes)",
-				filepath.Base(file.Path),
-				file.Size)
-			return nil
-		}
-	*/
-
 	// Parser les seuils de taille
 	largeThreshold, err := parseSizeString(m.config.Backup.LargeFileThreshold)
 	if err != nil {
@@ -751,17 +760,446 @@ func (m *Manager) backupSingleFile(file index.FileEntry, backupID string) error 
 		ultraLargeThreshold = 5 * 1024 * 1024 * 1024 // 5GB default
 	}
 
-	// Choisir la méthode de sauvegarde selon la taille
+	// Choisir la méthode de sauvegarde selon la taille avec suivi de progression
 	if file.Size >= ultraLargeThreshold {
-		utils.Debug("🔄 Processing ultra-large file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
-		return m.backupUltraLargeFile(file, backupID)
+		if verbose {
+			utils.Debug("🔄 Processing ultra-large file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
+		}
+		return m.backupUltraLargeFileWithMultiProgress(file, backupID, multiProgressBar, verbose)
 	} else if file.Size >= largeThreshold {
-		utils.Debug("🔄 Processing large file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
-		return m.backupLargeFile(file, backupID)
+		if verbose {
+			utils.Debug("🔄 Processing large file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
+		}
+		return m.backupLargeFileWithMultiProgress(file, backupID, multiProgressBar, verbose)
 	} else {
-		utils.Debug("🔄 Processing standard file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
-		return m.backupStandardFile(file, backupID)
+		if verbose {
+			utils.Debug("🔄 Processing standard file: %s (%.2f MB)", fileName, float64(file.Size)/1024/1024)
+		}
+		return m.backupStandardFileWithMultiProgress(file, backupID, multiProgressBar, verbose)
 	}
+}
+
+// backupStandardFileWithMultiProgress sauvegarde un fichier standard avec la barre de progression intégrée
+func (m *Manager) backupStandardFileWithMultiProgress(file index.FileEntry, backupID string, multiProgressBar *utils.IntegratedProgressBar, verbose bool) error {
+	fileName := filepath.Base(file.Path)
+
+	// Vérifier si le fichier est vide
+	if file.Size == 0 {
+		utils.Debug("⚠️  Skipping empty standard file: %s", file.Path)
+		return nil
+	}
+
+	if verbose {
+		utils.Debug("🔄 Processing standard file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
+	}
+
+	// Mettre à jour la progression si la barre est disponible
+	if multiProgressBar != nil && !verbose {
+		fileName := filepath.Base(file.Path)
+		multiProgressBar.UpdateChunkWithName(fileName, 0, 1) // 1 chunk pour les fichiers standards
+	}
+
+	// Lire le fichier
+	fileData, err := os.ReadFile(file.Path)
+	if err != nil {
+		return fmt.Errorf("error reading file: %w", err)
+	}
+
+	// Mettre à jour la progression après lecture
+	if multiProgressBar != nil && !verbose {
+		fileName := filepath.Base(file.Path)
+		multiProgressBar.UpdateChunkWithName(fileName, 1, 1) // Lecture terminée
+	}
+
+	// Compresser les données si configuré
+	if m.config.Backup.CompressionLevel > 0 {
+		if verbose {
+			utils.Debug("🗜️  Compressing file...")
+		}
+		compressedData, err := m.compressor.Compress(fileData)
+		if err != nil {
+			return fmt.Errorf("error compressing file: %w", err)
+		}
+		fileData = compressedData
+	}
+
+	// Chiffrer les données
+	if verbose {
+		utils.Debug("🔐 Encrypting file...")
+	}
+	encryptedData, err := m.encryptor.Encrypt(fileData)
+	if err != nil {
+		return fmt.Errorf("error encrypting file: %w", err)
+	}
+
+	// Générer la clé de stockage cohérente avec l'index: data/{backupID}/{storageKey}
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+
+	// Sauvegarder avec retry
+	if err := m.saveToStorageWithRetry(storageKey, encryptedData); err != nil {
+		return fmt.Errorf("error saving file to storage: %w", err)
+	}
+
+	// Retirer le fichier de la barre de progression
+	if multiProgressBar != nil && !verbose {
+		fileName := filepath.Base(file.Path)
+		multiProgressBar.RemoveFile(fileName)
+	}
+
+	if verbose {
+		utils.Debug("✅ Standard file saved: %s", fileName)
+	}
+	return nil
+}
+
+// backupLargeFileWithMultiProgress sauvegarde un fichier volumineux avec la barre de progression intégrée
+func (m *Manager) backupLargeFileWithMultiProgress(file index.FileEntry, backupID string, multiProgressBar *utils.IntegratedProgressBar, verbose bool) error {
+	fileName := filepath.Base(file.Path)
+
+	if verbose {
+		utils.Debug("🔄 Processing large file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
+	}
+
+	// Vérifier si le fichier est vide
+	if file.Size == 0 {
+		if verbose {
+			utils.Debug("⚠️  Skipping empty large file: %s", file.Path)
+		}
+		return nil
+	}
+
+	// Initialiser les statistiques de chunking
+	stats := NewBackupStats()
+	stats.TotalSize = file.Size
+	stats.UpdateStatus(fmt.Sprintf("Processing large file: %s", fileName))
+
+	// Arrêter le monitoring à la fin de la fonction
+	defer stats.StopMonitoring()
+
+	// Read file in chunks and process each chunk
+	fileHandle, err := os.Open(file.Path)
+	if err != nil {
+		return fmt.Errorf("error opening large file: %w", err)
+	}
+	defer fileHandle.Close()
+
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	if verbose {
+		utils.Debug("📋 Starting chunked upload for large file: %s", file.Path)
+	}
+
+	// Get chunk size from config or use default
+	chunkSizeStr := m.config.Backup.ChunkSize
+	if chunkSizeStr == "" {
+		chunkSizeStr = "10MB" // Default
+	}
+
+	chunkSize, err := parseSizeString(chunkSizeStr)
+	if err != nil {
+		utils.Warn("Invalid chunk_size config, using default 10MB: %v", err)
+		chunkSize = 10 * 1024 * 1024 // 10MB default
+	}
+
+	if verbose {
+		utils.Debug("🔧 Using chunk size: %s (%d bytes) for large file", chunkSizeStr, chunkSize)
+	}
+
+	chunkNumber := 0
+	totalProcessed := int64(0)
+
+	// Calculate total chunks for progress bar
+	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
+	stats.TotalChunks = int(totalChunks)
+
+	// Afficher la progression avec la barre multi-fichiers si disponible
+	if multiProgressBar != nil && !verbose {
+		multiProgressBar.SetCurrentFile(fileName, file.Size)
+		multiProgressBar.UpdateChunk(fileName, 0, int64(totalChunks))
+	} else if verbose {
+		utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
+			fileName, float64(file.Size)/1024/1024))
+	}
+
+	if verbose {
+		utils.Debug("📊 File processing plan:")
+		utils.Debug("   - Total file size: %.2f MB", float64(file.Size)/1024/1024)
+		utils.Debug("   - Chunk size: %.2f MB", float64(chunkSize)/1024/1024)
+		utils.Debug("   - Total chunks: %d", totalChunks)
+		utils.Debug("   - Storage key: %s", storageKey)
+	}
+
+	// Démarrer le monitoring spécifique pour ce fichier chunké
+	m.startChunkMonitoring(stats, verbose)
+
+	for {
+		// Read chunk
+		chunk := make([]byte, chunkSize)
+		n, err := fileHandle.Read(chunk)
+		if n == 0 {
+			break // End of file
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("error reading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunk = chunk[:n] // Adjust slice to actual bytes read
+		totalProcessed += int64(n)
+
+		// Mettre à jour les statistiques de chunking
+		stats.UpdateChunkStats(chunkNumber+1, int(totalChunks), int64(n))
+
+		// Mettre à jour la progression des chunks avec la barre multi-fichiers si disponible
+		if multiProgressBar != nil && !verbose {
+			multiProgressBar.UpdateChunk(fileName, int64(chunkNumber+1), int64(totalChunks))
+		} else if verbose {
+			// Show progress for each chunk with file name for clarity
+			progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+				fileName, chunkNumber+1, totalChunks, progress,
+				float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		}
+
+		if verbose {
+			utils.Debug("🔄 Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
+				chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
+		}
+
+		// Compress then encrypt (dans cet ordre)
+		processedChunk := chunk
+		if m.config.Backup.CompressionLevel > 0 {
+			if verbose {
+				utils.Debug("🗜️  Compressing chunk %d...", chunkNumber)
+			}
+			compressedChunk, err := m.compressor.Compress(processedChunk)
+			if err != nil {
+				return fmt.Errorf("error compressing chunk %d: %w", chunkNumber, err)
+			}
+			processedChunk = compressedChunk
+		}
+
+		// Encrypt chunk
+		if verbose {
+			utils.Debug("🔐 Encrypting chunk %d...", chunkNumber)
+		}
+		encryptedChunk, err := m.encryptor.Encrypt(processedChunk)
+		if err != nil {
+			return fmt.Errorf("error encrypting chunk %d: %w", chunkNumber, err)
+		}
+
+		// Generate chunk key
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNumber)
+		if verbose {
+			utils.Debug("📤 Uploading chunk %d to storage: %s", chunkNumber, chunkKey)
+		}
+
+		// Upload chunk with retry
+		if err := m.saveToStorageWithRetry(chunkKey, encryptedChunk); err != nil {
+			return fmt.Errorf("error uploading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunkNumber++
+	}
+
+	// Save metadata
+	metadata := map[string]interface{}{
+		"chunks": chunkNumber,
+		"size":   file.Size,
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("error marshaling metadata: %w", err)
+	}
+
+	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
+	if err := m.saveToStorageWithRetry(metadataKey, metadataBytes); err != nil {
+		return fmt.Errorf("error saving metadata: %w", err)
+	}
+
+	// Retirer le fichier de la barre de progression
+	if multiProgressBar != nil && !verbose {
+		multiProgressBar.RemoveFile(fileName)
+	}
+
+	if verbose {
+		utils.Debug("✅ Large file saved: %s (%d chunks)", fileName, chunkNumber)
+	}
+	return nil
+}
+
+// backupUltraLargeFileWithMultiProgress sauvegarde un fichier extrêmement volumineux avec la barre de progression intégrée
+func (m *Manager) backupUltraLargeFileWithMultiProgress(file index.FileEntry, backupID string, multiProgressBar *utils.IntegratedProgressBar, verbose bool) error {
+	fileName := filepath.Base(file.Path)
+
+	if verbose {
+		utils.Debug("🔄 Processing ultra-large file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
+	}
+
+	// Vérifier si le fichier est vide
+	if file.Size == 0 {
+		if verbose {
+			utils.Debug("⚠️  Skipping empty ultra-large file: %s", file.Path)
+		}
+		return nil
+	}
+
+	// Initialiser les statistiques de chunking
+	stats := NewBackupStats()
+	stats.TotalSize = file.Size
+	stats.UpdateStatus(fmt.Sprintf("Processing ultra-large file: %s", fileName))
+
+	// Arrêter le monitoring à la fin de la fonction
+	defer stats.StopMonitoring()
+
+	// Read file in chunks and process each chunk
+	fileHandle, err := os.Open(file.Path)
+	if err != nil {
+		return fmt.Errorf("error opening ultra-large file: %w", err)
+	}
+	defer fileHandle.Close()
+
+	storageKey := fmt.Sprintf("data/%s/%s", backupID, file.GetStorageKey())
+	if verbose {
+		utils.Debug("📋 Starting chunked upload for ultra-large file: %s", file.Path)
+	}
+
+	// Get chunk size from config or use default
+	chunkSizeStr := m.config.Backup.ChunkSize
+	if chunkSizeStr == "" {
+		chunkSizeStr = "50MB" // Default pour les très gros fichiers
+	}
+
+	chunkSize, err := parseSizeString(chunkSizeStr)
+	if err != nil {
+		utils.Warn("Invalid chunk_size config, using default 50MB: %v", err)
+		chunkSize = 50 * 1024 * 1024 // 50MB default
+	}
+
+	if verbose {
+		utils.Debug("🔧 Using chunk size: %s (%d bytes) for ultra-large file", chunkSizeStr, chunkSize)
+	}
+
+	chunkNumber := 0
+	totalProcessed := int64(0)
+
+	// Calculate total chunks for progress bar
+	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
+	stats.TotalChunks = int(totalChunks)
+
+	// Afficher la progression avec la barre multi-fichiers si disponible
+	if multiProgressBar != nil && !verbose {
+		multiProgressBar.SetCurrentFile(fileName, file.Size)
+		multiProgressBar.UpdateChunk(fileName, 0, int64(totalChunks))
+	} else if verbose {
+		utils.ProgressStep(fmt.Sprintf("Processing ultra-large file: %s (%.2f MB)",
+			fileName, float64(file.Size)/1024/1024))
+	}
+
+	if verbose {
+		utils.Debug("📊 File processing plan:")
+		utils.Debug("   - Total file size: %.2f MB", float64(file.Size)/1024/1024)
+		utils.Debug("   - Chunk size: %.2f MB", float64(chunkSize)/1024/1024)
+		utils.Debug("   - Total chunks: %d", totalChunks)
+		utils.Debug("   - Storage key: %s", storageKey)
+	}
+
+	// Démarrer le monitoring spécifique pour ce fichier chunké
+	m.startChunkMonitoring(stats, verbose)
+
+	for {
+		// Read chunk
+		chunk := make([]byte, chunkSize)
+		n, err := fileHandle.Read(chunk)
+		if n == 0 {
+			break // End of file
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("error reading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunk = chunk[:n] // Adjust slice to actual bytes read
+		totalProcessed += int64(n)
+
+		// Mettre à jour les statistiques de chunking
+		stats.UpdateChunkStats(chunkNumber+1, int(totalChunks), int64(n))
+
+		// Mettre à jour la progression des chunks avec la barre multi-fichiers si disponible
+		if multiProgressBar != nil && !verbose {
+			multiProgressBar.UpdateChunk(fileName, int64(chunkNumber+1), int64(totalChunks))
+		} else if verbose {
+			// Show progress for each chunk with file name for clarity
+			progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+				fileName, chunkNumber+1, totalChunks, progress,
+				float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		}
+
+		if verbose {
+			utils.Debug("🔄 Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
+				chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
+		}
+
+		// Compress then encrypt (dans cet ordre)
+		processedChunk := chunk
+		if m.config.Backup.CompressionLevel > 0 {
+			if verbose {
+				utils.Debug("🗜️  Compressing chunk %d...", chunkNumber)
+			}
+			compressedChunk, err := m.compressor.Compress(processedChunk)
+			if err != nil {
+				return fmt.Errorf("error compressing chunk %d: %w", chunkNumber, err)
+			}
+			processedChunk = compressedChunk
+		}
+
+		// Encrypt chunk
+		if verbose {
+			utils.Debug("🔐 Encrypting chunk %d...", chunkNumber)
+		}
+		encryptedChunk, err := m.encryptor.Encrypt(processedChunk)
+		if err != nil {
+			return fmt.Errorf("error encrypting chunk %d: %w", chunkNumber, err)
+		}
+
+		// Generate chunk key
+		chunkKey := fmt.Sprintf("%s.chunk.%03d", storageKey, chunkNumber)
+		if verbose {
+			utils.Debug("📤 Uploading chunk %d to storage: %s", chunkNumber, chunkKey)
+		}
+
+		// Upload chunk with retry
+		if err := m.saveToStorageWithRetry(chunkKey, encryptedChunk); err != nil {
+			return fmt.Errorf("error uploading chunk %d: %w", chunkNumber, err)
+		}
+
+		chunkNumber++
+	}
+
+	// Save metadata
+	metadata := map[string]interface{}{
+		"chunks": chunkNumber,
+		"size":   file.Size,
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("error marshaling metadata: %w", err)
+	}
+
+	metadataKey := fmt.Sprintf("%s.metadata", storageKey)
+	if err := m.saveToStorageWithRetry(metadataKey, metadataBytes); err != nil {
+		return fmt.Errorf("error saving metadata: %w", err)
+	}
+
+	// Retirer le fichier de la barre de progression
+	if multiProgressBar != nil && !verbose {
+		multiProgressBar.RemoveFile(fileName)
+	}
+
+	if verbose {
+		utils.Debug("✅ Ultra-large file saved: %s (%d chunks)", fileName, chunkNumber)
+	}
+	return nil
 }
 
 // isFileModifiedSinceLastBackup vérifie si un fichier a été modifié depuis le dernier backup
@@ -834,9 +1272,14 @@ func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
 	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
 	stats.TotalChunks = int(totalChunks)
 
-	// Show progress bar for large file processing
-	utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
-		fileName, float64(file.Size)/1024/1024))
+	// Afficher la progression avec la barre multi-fichiers si disponible
+	if m.multiProgressBar != nil {
+		m.multiProgressBar.SetCurrentFile(fileName, file.Size)
+		m.multiProgressBar.UpdateChunk(fileName, 0, int64(totalChunks))
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
+			fileName, float64(file.Size)/1024/1024))
+	}
 
 	utils.Debug("📊 File processing plan:")
 	utils.Debug("   - Total file size: %.2f MB", float64(file.Size)/1024/1024)
@@ -864,11 +1307,16 @@ func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
 		// Mettre à jour les statistiques de chunking
 		stats.UpdateChunkStats(chunkNumber+1, int(totalChunks), int64(n))
 
-		// Show progress for each chunk with file name for clarity
-		progress := float64(chunkNumber+1) / float64(totalChunks) * 100
-		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
-			fileName, chunkNumber+1, totalChunks, progress,
-			float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		// Mettre à jour la progression des chunks avec la barre multi-fichiers si disponible
+		if m.multiProgressBar != nil {
+			m.multiProgressBar.UpdateChunk(fileName, int64(chunkNumber+1), int64(totalChunks))
+		} else {
+			// Show progress for each chunk with file name for clarity
+			progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+				fileName, chunkNumber+1, totalChunks, progress,
+				float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		}
 
 		utils.Debug("🔄 Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
 			chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
@@ -918,7 +1366,8 @@ func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
 	}
 	utils.Debug("✅ Metadata file uploaded successfully")
 
-	file.StorageKey = storageKey
+	// Stocker seulement la clé relative, pas la clé complète
+	file.StorageKey = file.GetStorageKey()
 	utils.Debug("🎯 Large file backed up in %d chunks: %s -> %s", chunkNumber, file.Path, storageKey)
 	return nil
 }
@@ -966,7 +1415,8 @@ func (m *Manager) backupStandardFile(file index.FileEntry, backupID string) erro
 	}
 	utils.Debug("✅ File uploaded successfully")
 
-	file.StorageKey = storageKey
+	// Stocker seulement la clé relative, pas la clé complète
+	file.StorageKey = file.GetStorageKey()
 	utils.Debug("🎯 Standard file backed up: %s -> %s", file.Path, storageKey)
 	return nil
 }
@@ -1015,9 +1465,14 @@ func (m *Manager) backupUltraLargeFile(file index.FileEntry, backupID string) er
 	totalChunks := (file.Size + chunkSize - 1) / chunkSize // Ceiling division
 	stats.TotalChunks = int(totalChunks)
 
-	// Show progress bar for large file processing
-	utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
-		fileName, float64(file.Size)/1024/1024))
+	// Afficher la progression avec la barre multi-fichiers si disponible
+	if m.multiProgressBar != nil {
+		m.multiProgressBar.SetCurrentFile(fileName, file.Size)
+		m.multiProgressBar.UpdateChunk(fileName, 0, int64(totalChunks))
+	} else {
+		utils.ProgressStep(fmt.Sprintf("Processing large file: %s (%.2f MB)",
+			fileName, float64(file.Size)/1024/1024))
+	}
 
 	utils.Debug("📊 File processing plan:")
 	utils.Debug("   - Total file size: %.2f MB", float64(file.Size)/1024/1024)
@@ -1045,11 +1500,16 @@ func (m *Manager) backupUltraLargeFile(file index.FileEntry, backupID string) er
 		// Mettre à jour les statistiques de chunking
 		stats.UpdateChunkStats(chunkNumber+1, int(totalChunks), int64(n))
 
-		// Show progress for each chunk with file name for clarity
-		progress := float64(chunkNumber+1) / float64(totalChunks) * 100
-		utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
-			fileName, chunkNumber+1, totalChunks, progress,
-			float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		// Mettre à jour la progression des chunks avec la barre multi-fichiers si disponible
+		if m.multiProgressBar != nil {
+			m.multiProgressBar.UpdateChunk(fileName, int64(chunkNumber+1), int64(totalChunks))
+		} else {
+			// Show progress for each chunk with file name for clarity
+			progress := float64(chunkNumber+1) / float64(totalChunks) * 100
+			utils.ProgressStep(fmt.Sprintf("[%s] Chunk %d/%d (%.1f%%) - %.2f MB / %.2f MB",
+				fileName, chunkNumber+1, totalChunks, progress,
+				float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024))
+		}
 
 		utils.Debug("🔄 Processing chunk %d: %d bytes (%.2f MB), total: %.2f MB / %.2f MB",
 			chunkNumber, n, float64(n)/1024/1024, float64(totalProcessed)/1024/1024, float64(file.Size)/1024/1024)
@@ -1099,7 +1559,8 @@ func (m *Manager) backupUltraLargeFile(file index.FileEntry, backupID string) er
 	}
 	utils.Debug("✅ Metadata file uploaded successfully")
 
-	file.StorageKey = storageKey
+	// Stocker seulement la clé relative, pas la clé complète
+	file.StorageKey = file.GetStorageKey()
 	utils.Debug("🎯 Ultra-large file backed up in %d chunks: %s -> %s", chunkNumber, file.Path, storageKey)
 	return nil
 }
@@ -1220,7 +1681,8 @@ func (m *Manager) backupVeryLargeFile(file index.FileEntry, backupID string) err
 	}
 	utils.Debug("✅ Metadata file uploaded successfully")
 
-	file.StorageKey = storageKey
+	// Stocker seulement la clé relative, pas la clé complète
+	file.StorageKey = file.GetStorageKey()
 	utils.Debug("🎯 Very large file backed up in %d chunks: %s -> %s", chunkNumber, file.Path, storageKey)
 	return nil
 }
@@ -1261,7 +1723,8 @@ func (m *Manager) backupStandardLargeFile(file index.FileEntry, backupID string)
 		return fmt.Errorf("error saving large file: %w", err)
 	}
 
-	file.StorageKey = storageKey
+	// Stocker seulement la clé relative, pas la clé complète
+	file.StorageKey = file.GetStorageKey()
 	utils.ProgressSuccess(fmt.Sprintf("Large file completed: %s (%.2f MB)",
 		fileName, float64(file.Size)/1024/1024))
 	utils.Debug("Standard large file backed up: %s -> %s", file.Path, storageKey)
@@ -1276,25 +1739,82 @@ func (m *Manager) saveToStorageWithRetry(key string, data []byte) error {
 		timeout = 30 * time.Second // Default 30 seconds
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Canal pour le résultat
-	resultChan := make(chan error, 1)
-
-	// Exécuter l'upload en arrière-plan
-	go func() {
-		resultChan <- m.storageClient.Upload(key, data)
-	}()
-
-	// Attendre avec timeout
-	select {
-	case err := <-resultChan:
-		return err
-	case <-ctx.Done():
-		utils.Warn("⚠️  Upload timeout for %s after %v", key, timeout)
-		return fmt.Errorf("upload timeout after %v", timeout)
+	// Configuration du retry
+	maxRetries := m.config.Backup.RetryAttempts
+	if maxRetries <= 0 {
+		maxRetries = 1 // Au moins 1 tentative
 	}
+
+	baseDelay := time.Duration(m.config.Backup.RetryDelay) * time.Second
+	if baseDelay <= 0 {
+		baseDelay = 2 * time.Second // Default 2 seconds
+	}
+
+	var lastError error
+
+	// Boucle de retry avec backoff exponentiel
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Calculer le délai avec backoff exponentiel
+			delay := baseDelay * time.Duration(1<<(attempt-1))
+			if delay > 60*time.Second { // Cap à 60 secondes
+				delay = 60 * time.Second
+			}
+
+			utils.Debug("🔄 Retry attempt %d/%d for %s after %v delay",
+				attempt+1, maxRetries, key, delay)
+
+			time.Sleep(delay)
+		}
+
+		// Créer un contexte avec timeout pour cette tentative
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+		// Canal pour le résultat
+		resultChan := make(chan error, 1)
+
+		// Exécuter l'upload en arrière-plan
+		go func() {
+			resultChan <- m.storageClient.Upload(key, data)
+		}()
+
+		// Attendre avec timeout
+		select {
+		case err := <-resultChan:
+			cancel()
+			if err == nil {
+				// Succès !
+				if attempt > 0 {
+					utils.Info("✅ Upload succeeded on retry attempt %d for %s", attempt+1, key)
+				}
+				return nil
+			}
+
+			// Erreur, la stocker pour le log final
+			lastError = err
+
+			// Log de l'erreur
+			if attempt < maxRetries-1 {
+				utils.Warn("⚠️  Upload failed for %s (attempt %d/%d): %v",
+					key, attempt+1, maxRetries, err)
+			}
+
+		case <-ctx.Done():
+			cancel()
+			lastError = fmt.Errorf("upload timeout after %v", timeout)
+
+			if attempt < maxRetries-1 {
+				utils.Warn("⚠️  Upload timeout for %s (attempt %d/%d) after %v",
+					key, attempt+1, maxRetries, timeout)
+			}
+		}
+	}
+
+	// Toutes les tentatives ont échoué
+	utils.Error("❌ Upload failed for %s after %d attempts. Last error: %v",
+		key, maxRetries, lastError)
+
+	return fmt.Errorf("upload failed after %d attempts for %s: %w", maxRetries, key, lastError)
 }
 
 // calculateCompressedSize calcule la taille compressede totale
@@ -1532,7 +2052,7 @@ func (m *Manager) calculateBackupDiff(currentIndex *index.BackupIndex, backupNam
 }
 
 // executeBackup executes the actual backup process
-func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.IndexDiff, backupID string, verbose bool) error {
+func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.IndexDiff, backupID string, backupName string, verbose bool) error {
 	totalFilesToBackup := len(diff.Added) + len(diff.Modified)
 
 	if verbose {
@@ -1607,7 +2127,7 @@ func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.Ind
 		utils.Info("   - Deleting expired backups")
 	}
 
-	err := m.applyRetentionPolicy(verbose)
+	err := m.applyRetentionPolicyForBackup(backupName, verbose)
 	if err != nil {
 		if verbose {
 			utils.Warn("⚠️  Task 7 completed with warnings: Retention policy failed")

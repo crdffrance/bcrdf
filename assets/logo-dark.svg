@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="640" height="160" viewBox="0 0 640 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">BCRDF Logo (Dark)</title>
+  <desc id="desc">Dark mode logo for BCRDF with light wordmark</desc>
+
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Emblem: layered secure cube -->
+  <g transform="translate(32,28)" filter="url(#shadow)">
+    <rect x="8" y="8" rx="12" width="72" height="72" fill="url(#g1)" opacity="0.9"/>
+    <rect x="20" y="20" rx="10" width="72" height="72" fill="url(#g2)" opacity="0.95"/>
+    <rect x="32" y="32" rx="10" width="72" height="72" fill="url(#g3)"/>
+
+    <!-- lock overlay -->
+    <g transform="translate(56,56)">
+      <rect x="0" y="12" width="24" height="18" rx="4" fill="#0B1220" opacity="0.95"/>
+      <rect x="6" y="0" width="12" height="14" rx="6" fill="#0B1220" opacity="0.95"/>
+      <circle cx="12" cy="21" r="3" fill="#22D3EE"/>
+    </g>
+  </g>
+
+  <!-- Wordmark (light for dark backgrounds) -->
+  <g transform="translate(140,48)">
+    <text x="0" y="44" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="800" fill="#F8FAFC" letter-spacing="0.5">
+      BCRDF
+    </text>
+    <text x="2" y="88" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="500" fill="#CBD5E1">
+      Backup Copy with Redundant Data Format
+    </text>
+  </g>
+</svg>
+
+

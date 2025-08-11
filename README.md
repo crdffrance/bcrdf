@@ -2,6 +2,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-2.4.2-orange.svg)](CHANGELOG.md)
 
 BCRDF (Backup Copy with Redundant Data Format) is a fast, index-based backup tool with encryption, compression, chunking and retention. It supports S3-compatible storage and WebDAV.
 
@@ -40,9 +41,11 @@ $EDITOR configs/config.yaml
 ./bcrdf init -i -c configs/config.yaml
 ```
 
-3) Backup
+3) Backup (with env overrides)
 
 ```bash
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+export BCRDF_ENCRYPTION_KEY=$(openssl rand -hex 32)
 ./bcrdf backup -n my-backup -s /path/to/backup -c configs/config.yaml
 ```
 

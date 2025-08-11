@@ -24,7 +24,7 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-    Version   = "2.4.2"
+    Version   = "2.4.3"
 	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )

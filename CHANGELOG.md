@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2025-08-15
+
+### Fixed
+- **Binary Detection in Archives**: Fixed issue where binary files were not found after archive extraction
+- **Temporary File Management**: Corrected premature deletion of temporary files during update process
+- **Platform-Specific Binary Names**: Added support for platform-specific binary names (e.g., bcrdf-darwin-arm64)
+- **Update Process Reliability**: Resolved critical issue preventing successful updates from GitHub releases
+
+### Enhanced
+- **Update System Debug**: Added detailed file listing during archive extraction for better troubleshooting
+- **Binary Search Algorithm**: Improved recursive search for binaries within extracted archives
+- **Error Recovery**: Better error handling and cleanup during the update process
+- **Cross-Platform Support**: Enhanced compatibility for all supported platforms and architectures
+
+### Technical Details
+- Fixed binary detection to handle platform-specific naming conventions
+- Improved temporary file lifecycle management during updates
+- Added debug output for archive extraction process
+- Enhanced recursive file search for binary detection
+- Optimized cleanup process for temporary files and directories
+
 ## [2.7.0] - 2025-08-15
 
 ### Fixed

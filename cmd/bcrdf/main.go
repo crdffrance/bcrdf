@@ -33,7 +33,7 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-	Version   = "2.7.0"
+	Version   = "2.7.1"
 	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )
@@ -822,7 +822,7 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 	tempFile.Close()
 
 	// Extract the archive to get the binary
-	binaryPath, err := extractBinary(tempFile.Name(), platform)
+	binaryPath, err := extractBinary(tempFile.Name(), platform, releaseArch)
 	if err != nil {
 		return fmt.Errorf("error extracting binary: %w", err)
 	}
@@ -851,9 +851,14 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 		return fmt.Errorf("error setting permissions: %w", err)
 	}
 
-	// Clean up extracted files
+	// Clean up extracted files and temporary directory
 	os.Remove(binaryPath)
 	os.Remove(backupPath)
+
+	// Clean up the temporary extraction directory
+	if tempDir := filepath.Dir(binaryPath); tempDir != "" {
+		os.RemoveAll(tempDir)
+	}
 
 	return nil
 }
@@ -869,13 +874,13 @@ func (pw *progressWriter) Write(p []byte) (n int, err error) {
 }
 
 // extractBinary extracts the binary from the downloaded archive
-func extractBinary(archivePath, platform string) (string, error) {
+func extractBinary(archivePath, platform, releaseArch string) (string, error) {
 	// Create temporary directory for extraction
 	tempDir, err := os.MkdirTemp("", "bcrdf-extract-*")
 	if err != nil {
 		return "", fmt.Errorf("error creating temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	// Note: tempDir will be cleaned up by the caller after copying the binary
 
 	var binaryPath string
 	switch platform {
@@ -884,47 +889,44 @@ func extractBinary(archivePath, platform string) (string, error) {
 		if err := extractTarGz(archivePath, tempDir); err != nil {
 			return "", fmt.Errorf("error extracting tar.gz: %w", err)
 		}
+
+		// Debug: List all extracted files
+		fmt.Printf("🔍 Extracted files in %s:\n", tempDir)
+		listFilesRecursively(tempDir, "")
+
 		// Look for the binary in the extracted directory
+		// First try the simple name
 		binaryPath = filepath.Join(tempDir, "bcrdf")
 		if !utils.FileExists(binaryPath) {
-			// Try to find it in subdirectories
-			files, err := os.ReadDir(tempDir)
-			if err != nil {
-				return "", fmt.Errorf("error reading extracted directory: %w", err)
-			}
-			for _, file := range files {
-				if file.IsDir() {
-					subPath := filepath.Join(tempDir, file.Name(), "bcrdf")
-					if utils.FileExists(subPath) {
-						binaryPath = subPath
-						break
-					}
+			// Try the platform-specific name
+			platformBinaryName := fmt.Sprintf("bcrdf-%s-%s", platform, releaseArch)
+			binaryPath = filepath.Join(tempDir, platformBinaryName)
+			if !utils.FileExists(binaryPath) {
+				// Try to find it in subdirectories with more flexible search
+				binaryPath = findBinaryRecursively(tempDir, "bcrdf")
+				if binaryPath == "" {
+					binaryPath = findBinaryRecursively(tempDir, platformBinaryName)
 				}
 			}
 		}
+
 	case "windows":
 		// Extract zip
 		if err := extractZip(archivePath, tempDir); err != nil {
 			return "", fmt.Errorf("error extracting zip: %w", err)
 		}
+
+		// Debug: List all extracted files
+		fmt.Printf("🔍 Extracted files in %s:\n", tempDir)
+		listFilesRecursively(tempDir, "")
+
 		// Look for the binary in the extracted directory
 		binaryPath = filepath.Join(tempDir, "bcrdf.exe")
 		if !utils.FileExists(binaryPath) {
-			// Try to find it in subdirectories
-			files, err := os.ReadDir(tempDir)
-			if err != nil {
-				return "", fmt.Errorf("error reading extracted directory: %w", err)
-			}
-			for _, file := range files {
-				if file.IsDir() {
-					subPath := filepath.Join(tempDir, file.Name(), "bcrdf.exe")
-					if utils.FileExists(subPath) {
-						binaryPath = subPath
-						break
-					}
-				}
-			}
+			// Try to find it in subdirectories with more flexible search
+			binaryPath = findBinaryRecursively(tempDir, "bcrdf.exe")
 		}
+
 	default:
 		return "", fmt.Errorf("unsupported platform: %s", platform)
 	}
@@ -933,7 +935,49 @@ func extractBinary(archivePath, platform string) (string, error) {
 		return "", fmt.Errorf("binary not found in extracted archive")
 	}
 
+	fmt.Printf("✅ Binary found at: %s\n", binaryPath)
 	return binaryPath, nil
+}
+
+// listFilesRecursively lists all files in a directory recursively
+func listFilesRecursively(dir, prefix string) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		fullPath := filepath.Join(dir, file.Name())
+		if file.IsDir() {
+			fmt.Printf("  %s📁 %s/\n", prefix, file.Name())
+			listFilesRecursively(fullPath, prefix+"  ")
+		} else {
+			fmt.Printf("  %s📄 %s\n", prefix, file.Name())
+		}
+	}
+}
+
+// findBinaryRecursively searches for a binary file recursively
+func findBinaryRecursively(dir, binaryName string) string {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	for _, file := range files {
+		fullPath := filepath.Join(dir, file.Name())
+		if file.IsDir() {
+			// Search in subdirectory
+			if found := findBinaryRecursively(fullPath, binaryName); found != "" {
+				return found
+			}
+		} else if file.Name() == binaryName {
+			// Found the binary
+			return fullPath
+		}
+	}
+
+	return ""
 }
 
 // extractTarGz extracts a tar.gz archive

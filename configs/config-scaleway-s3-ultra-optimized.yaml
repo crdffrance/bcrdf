@@ -1,5 +1,5 @@
 
-Je storage:
+storage:
   type: "s3"
   bucket: "bcrdf"
   region: "fr-par"

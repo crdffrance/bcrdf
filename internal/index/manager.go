@@ -602,6 +602,14 @@ func (m *Manager) processFiles(sourcePath, checksumMode string, verbose bool, in
 			return nil
 		}
 
+		// Ignorer les fichiers vides (ils ne seront pas sauvegardés)
+		if info.Size() == 0 {
+			if verbose {
+				utils.Debug("Skipping empty file: %s", path)
+			}
+			return nil
+		}
+
 		if verbose {
 			utils.Debug("Processing file: %s", path)
 		}

@@ -741,12 +741,6 @@ func (m *Manager) backupSingleFileWithMultiProgress(file index.FileEntry, backup
 		return nil
 	}
 
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		utils.Debug("⚠️  Skipping empty file: %s", file.Path)
-		return nil
-	}
-
 	// Parser les seuils de taille
 	largeThreshold, err := parseSizeString(m.config.Backup.LargeFileThreshold)
 	if err != nil {
@@ -782,12 +776,6 @@ func (m *Manager) backupSingleFileWithMultiProgress(file index.FileEntry, backup
 // backupStandardFileWithMultiProgress sauvegarde un fichier standard avec la barre de progression intégrée
 func (m *Manager) backupStandardFileWithMultiProgress(file index.FileEntry, backupID string, multiProgressBar *utils.IntegratedProgressBar, verbose bool) error {
 	fileName := filepath.Base(file.Path)
-
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		utils.Debug("⚠️  Skipping empty standard file: %s", file.Path)
-		return nil
-	}
 
 	if verbose {
 		utils.Debug("🔄 Processing standard file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
@@ -858,14 +846,6 @@ func (m *Manager) backupLargeFileWithMultiProgress(file index.FileEntry, backupI
 
 	if verbose {
 		utils.Debug("🔄 Processing large file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
-	}
-
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		if verbose {
-			utils.Debug("⚠️  Skipping empty large file: %s", file.Path)
-		}
-		return nil
 	}
 
 	// Initialiser les statistiques de chunking
@@ -1033,14 +1013,6 @@ func (m *Manager) backupUltraLargeFileWithMultiProgress(file index.FileEntry, ba
 
 	if verbose {
 		utils.Debug("🔄 Processing ultra-large file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
-	}
-
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		if verbose {
-			utils.Debug("⚠️  Skipping empty ultra-large file: %s", file.Path)
-		}
-		return nil
 	}
 
 	// Initialiser les statistiques de chunking
@@ -1227,12 +1199,6 @@ func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
 	fileName := filepath.Base(file.Path)
 	utils.Debug("🔄 Processing large file: %s (%d bytes, %.2f MB)", file.Path, file.Size, float64(file.Size)/1024/1024)
 
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		utils.Debug("⚠️  Skipping empty large file: %s", file.Path)
-		return nil
-	}
-
 	// Initialiser les statistiques de chunking
 	stats := NewBackupStats()
 	stats.TotalSize = file.Size
@@ -1374,11 +1340,6 @@ func (m *Manager) backupLargeFile(file index.FileEntry, backupID string) error {
 
 // backupStandardFile sauvegarde un fichier standard (< 100MB)
 func (m *Manager) backupStandardFile(file index.FileEntry, backupID string) error {
-	// Vérifier si le fichier est vide
-	if file.Size == 0 {
-		utils.Debug("⚠️  Skipping empty standard file: %s", file.Path)
-		return nil
-	}
 
 	utils.Debug("🔄 Processing standard file: %s (%.2f MB)", file.Path, float64(file.Size)/1024/1024)
 
@@ -2070,6 +2031,16 @@ func (m *Manager) executeBackup(currentIndex *index.BackupIndex, diff *index.Ind
 		return fmt.Errorf("error saving des fichiers: %w", err)
 	}
 
+	// Nettoyer les anciens objets S3 non référencés dans cette sauvegarde
+	if err := m.cleanupUnreferencedObjects(backupID, currentIndex, verbose); err != nil {
+		if verbose {
+			utils.Warn("⚠️  Warning: Failed to cleanup unreferenced objects: %v", err)
+		}
+		// Ne pas faire échouer le backup complet à cause du nettoyage
+	} else if verbose {
+		utils.Info("🧹 Cleaned up unreferenced objects from previous backups")
+	}
+
 	// Optimisation : Préparer l'index en parallèle pendant les uploads
 	if verbose {
 		utils.Info("📋 Task 6: Finalizing backup")
@@ -2157,10 +2128,67 @@ func (m *Manager) logBackupCompletion(diff *index.IndexDiff, duration time.Durat
 		utils.Info("🎯 Final tasks completed:")
 		utils.Info("   ✅ All files backed up successfully")
 		utils.Info("   ✅ Backup index saved")
+		utils.Info("   ✅ Unreferenced objects cleaned up")
 		utils.Info("   ✅ Retention policy applied")
 	} else {
 		utils.ProgressSuccess(fmt.Sprintf("✅ Backup completed in %v", duration))
 		utils.ProgressInfo(fmt.Sprintf("📊 %d added, %d modified, %d deleted",
 			len(diff.Added), len(diff.Modified), len(diff.Deleted)))
 	}
+}
+
+// cleanupUnreferencedObjects supprime les anciens objets S3 non référencés dans la sauvegarde actuelle
+func (m *Manager) cleanupUnreferencedObjects(backupID string, currentIndex *index.BackupIndex, verbose bool) error {
+	if verbose {
+		utils.Info("🧹 Cleaning up unreferenced objects from previous backups...")
+	}
+
+	// Créer un ensemble des clés de stockage référencées dans l'index actuel
+	referencedKeys := make(map[string]bool)
+	for _, file := range currentIndex.Files {
+		if file.StorageKey != "" {
+			referencedKeys[file.StorageKey] = true
+		}
+	}
+
+	// Lister tous les objets dans le répertoire de cette sauvegarde
+	prefix := fmt.Sprintf("data/%s/", backupID)
+	objects, err := m.storageClient.ListObjects(prefix)
+	if err != nil {
+		return fmt.Errorf("error listing objects for cleanup: %w", err)
+	}
+
+	// Supprimer les objets non référencés
+	deletedCount := 0
+	for _, obj := range objects {
+		// Extraire la clé de stockage de l'objet S3
+		storageKey := strings.TrimPrefix(obj.Key, prefix)
+		// Supprimer l'extension .chunk.XXX si c'est un chunk
+		if strings.Contains(storageKey, ".chunk.") {
+			storageKey = strings.Split(storageKey, ".chunk.")[0]
+		}
+		// Supprimer l'extension .metadata si c'est un fichier de métadonnées
+		storageKey = strings.TrimSuffix(storageKey, ".metadata")
+
+		// Si cette clé n'est pas référencée dans l'index actuel, la supprimer
+		if !referencedKeys[storageKey] {
+			if verbose {
+				utils.Debug("🗑️  Deleting unreferenced object: %s", obj.Key)
+			}
+			if err := m.storageClient.DeleteObject(obj.Key); err != nil {
+				if verbose {
+					utils.Warn("⚠️  Warning: Failed to delete unreferenced object %s: %v", obj.Key, err)
+				}
+				// Continuer le nettoyage même si un objet ne peut pas être supprimé
+			} else {
+				deletedCount++
+			}
+		}
+	}
+
+	if verbose {
+		utils.Info("🧹 Cleanup completed: %d unreferenced objects deleted", deletedCount)
+	}
+
+	return nil
 }

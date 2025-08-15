@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2025-08-15
+
+### Added
+- **Automatic S3 Object Cleanup**: New `cleanupUnreferencedObjects` function to prevent `NoSuchKey` errors during restore
+- **Enhanced Backup Integrity**: Automatic cleanup of orphaned S3 objects after each backup operation
+- **Improved Restore Reliability**: Eliminated `NoSuchKey` errors that occurred with incremental backups
+
+### Fixed
+- **Critical Restore Errors**: Fixed `NoSuchKey` errors that prevented successful restoration of specific backup points
+- **Incremental Backup Consistency**: Resolved inconsistency between backup indexes and actual S3 objects
+- **Object Lifecycle Management**: Automatic cleanup of S3 objects that are no longer referenced by current backups
+
+### Changed
+- **Backup Process Enhancement**: Added cleanup step after file backup to ensure S3 storage consistency
+- **Error Handling**: Improved error handling for S3 operations with automatic cleanup on failures
+- **Version Update**: Bumped to version 2.5.0 for this critical fix release
+
+### Technical Details
+- Implemented `cleanupUnreferencedObjects` in `internal/backup/manager.go`
+- Added automatic cleanup call in `executeBackup` function
+- Enhanced logging to track cleanup operations
+- Improved S3 object lifecycle management for incremental backups
+
 ## [2.4.0] - 2024-08-08
 
 ### Added

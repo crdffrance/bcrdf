@@ -2,7 +2,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.4.3-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.5.0-orange.svg)](CHANGELOG.md)
 
 BCRDF (Backup Copy with Redundant Data Format) is a fast, index-based backup tool with encryption, compression, chunking and retention. It supports S3-compatible storage and WebDAV.
 

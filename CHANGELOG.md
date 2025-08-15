@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2025-08-15
+
+### Fixed
+- **Update System URLs**: Fixed incorrect download URLs for GitHub releases
+- **Archive Extraction**: Added support for .tar.gz and .zip archives from GitHub releases
+- **Cross-Platform Compatibility**: Corrected file extensions for Linux (.tar.gz), macOS (.tar.gz), and Windows (.zip)
+- **Binary Detection**: Improved binary extraction and detection within compressed archives
+
+### Enhanced
+- **Update Reliability**: System now correctly downloads and extracts binaries from GitHub releases
+- **Error Handling**: Better error messages and recovery for update failures
+- **Archive Support**: Full support for compressed archives (tar.gz, zip) with automatic extraction
+
+### Technical Details
+- Fixed download URL construction for different platforms
+- Added tar.gz extraction support for Linux and macOS
+- Added zip extraction support for Windows
+- Improved binary path detection within extracted archives
+- Enhanced error handling for archive extraction
+
 ## [2.6.0] - 2025-08-15
 
 ### Added

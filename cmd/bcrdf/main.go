@@ -1,12 +1,16 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,7 +33,7 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-	Version   = "2.6.0"
+	Version   = "2.7.0"
 	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )
@@ -762,13 +766,20 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 		return fmt.Errorf("unsupported architecture: %s", arch)
 	}
 
-	// Construct download URL
-	downloadURL := fmt.Sprintf("https://github.com/crdffrance/bcrdf/releases/download/v%s/bcrdf-%s-%s",
-		version, platform, releaseArch)
-
-	// Add extension for Windows
-	if platform == "windows" {
-		downloadURL += ".exe"
+	// Construct download URL with correct extensions
+	var downloadURL string
+	switch platform {
+	case "darwin":
+		downloadURL = fmt.Sprintf("https://github.com/crdffrance/bcrdf/releases/download/v%s/bcrdf-%s-%s.tar.gz",
+			version, platform, releaseArch)
+	case "linux":
+		downloadURL = fmt.Sprintf("https://github.com/crdffrance/bcrdf/releases/download/v%s/bcrdf-%s-%s.tar.gz",
+			version, platform, releaseArch)
+	case "windows":
+		downloadURL = fmt.Sprintf("https://github.com/crdffrance/bcrdf/releases/download/v%s/bcrdf-%s-%s.zip",
+			version, platform, releaseArch)
+	default:
+		return fmt.Errorf("unsupported platform: %s", platform)
 	}
 
 	if verbose {
@@ -810,6 +821,12 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 	// Close temp file
 	tempFile.Close()
 
+	// Extract the archive to get the binary
+	binaryPath, err := extractBinary(tempFile.Name(), platform)
+	if err != nil {
+		return fmt.Errorf("error extracting binary: %w", err)
+	}
+
 	// Get current executable path
 	execPath, err := os.Executable()
 	if err != nil {
@@ -823,7 +840,7 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 	}
 
 	// Install new version
-	if err := copyFile(tempFile.Name(), execPath); err != nil {
+	if err := copyFile(binaryPath, execPath); err != nil {
 		// Restore backup on failure
 		copyFile(backupPath, execPath)
 		return fmt.Errorf("error installing update: %w", err)
@@ -834,7 +851,8 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 		return fmt.Errorf("error setting permissions: %w", err)
 	}
 
-	// Remove backup
+	// Clean up extracted files
+	os.Remove(binaryPath)
 	os.Remove(backupPath)
 
 	return nil
@@ -848,6 +866,189 @@ type progressWriter struct {
 func (pw *progressWriter) Write(p []byte) (n int, err error) {
 	pw.bar.Add(int64(len(p)))
 	return len(p), nil
+}
+
+// extractBinary extracts the binary from the downloaded archive
+func extractBinary(archivePath, platform string) (string, error) {
+	// Create temporary directory for extraction
+	tempDir, err := os.MkdirTemp("", "bcrdf-extract-*")
+	if err != nil {
+		return "", fmt.Errorf("error creating temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	var binaryPath string
+	switch platform {
+	case "darwin", "linux":
+		// Extract tar.gz
+		if err := extractTarGz(archivePath, tempDir); err != nil {
+			return "", fmt.Errorf("error extracting tar.gz: %w", err)
+		}
+		// Look for the binary in the extracted directory
+		binaryPath = filepath.Join(tempDir, "bcrdf")
+		if !utils.FileExists(binaryPath) {
+			// Try to find it in subdirectories
+			files, err := os.ReadDir(tempDir)
+			if err != nil {
+				return "", fmt.Errorf("error reading extracted directory: %w", err)
+			}
+			for _, file := range files {
+				if file.IsDir() {
+					subPath := filepath.Join(tempDir, file.Name(), "bcrdf")
+					if utils.FileExists(subPath) {
+						binaryPath = subPath
+						break
+					}
+				}
+			}
+		}
+	case "windows":
+		// Extract zip
+		if err := extractZip(archivePath, tempDir); err != nil {
+			return "", fmt.Errorf("error extracting zip: %w", err)
+		}
+		// Look for the binary in the extracted directory
+		binaryPath = filepath.Join(tempDir, "bcrdf.exe")
+		if !utils.FileExists(binaryPath) {
+			// Try to find it in subdirectories
+			files, err := os.ReadDir(tempDir)
+			if err != nil {
+				return "", fmt.Errorf("error reading extracted directory: %w", err)
+			}
+			for _, file := range files {
+				if file.IsDir() {
+					subPath := filepath.Join(tempDir, file.Name(), "bcrdf.exe")
+					if utils.FileExists(subPath) {
+						binaryPath = subPath
+						break
+					}
+				}
+			}
+		}
+	default:
+		return "", fmt.Errorf("unsupported platform: %s", platform)
+	}
+
+	if !utils.FileExists(binaryPath) {
+		return "", fmt.Errorf("binary not found in extracted archive")
+	}
+
+	return binaryPath, nil
+}
+
+// extractTarGz extracts a tar.gz archive
+func extractTarGz(archivePath, destDir string) error {
+	// Open the tar.gz file
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Create gzip reader
+	gzr, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	// Create tar reader
+	tr := tar.NewReader(gzr)
+
+	// Extract files
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if header.Typeflag == tar.TypeDir {
+			continue
+		}
+
+		// Create the file
+		path := filepath.Join(destDir, header.Name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		f, err := os.Create(path)
+		if err != nil {
+			return err
+		}
+
+		// Copy file content
+		if _, err := io.Copy(f, tr); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+
+		// Set permissions
+		if err := os.Chmod(path, os.FileMode(header.Mode)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// extractZip extracts a zip archive
+func extractZip(archivePath, destDir string) error {
+	// Open the zip file
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	// Extract files
+	for _, file := range reader.File {
+		path := filepath.Join(destDir, file.Name)
+
+		// Skip directories
+		if file.FileInfo().IsDir() {
+			os.MkdirAll(path, file.Mode())
+			continue
+		}
+
+		// Create the file
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		f, err := os.Create(path)
+		if err != nil {
+			return err
+		}
+
+		// Open the file in the zip
+		rc, err := file.Open()
+		if err != nil {
+			f.Close()
+			return err
+		}
+
+		// Copy file content
+		if _, err := io.Copy(f, rc); err != nil {
+			f.Close()
+			rc.Close()
+			return err
+		}
+		f.Close()
+		rc.Close()
+
+		// Set permissions
+		if err := os.Chmod(path, file.Mode()); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // copyFile copies a file from src to dst

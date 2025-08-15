@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -24,7 +29,7 @@ var (
 	configFile string
 	verbose    bool
 	// Version information
-    Version   = "2.5.0"
+	Version   = "2.6.0"
 	BuildTime = time.Now().Format("2006-01-02")
 	GoVersion = "1.24"
 )
@@ -292,6 +297,25 @@ Key features:
 	initCmd.Flags().BoolP("test", "t", false, "Test an existing configuration")
 	initCmd.Flags().StringP("storage", "s", "s3", "Storage type (s3, webdav)")
 
+	// Update command
+	var updateCmd = &cobra.Command{
+		Use:   "update",
+		Short: "Check for and install updates",
+		Long:  "Checks for newer versions on GitHub and offers to download and install them",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkOnly, _ := cmd.Flags().GetBool("check")
+			force, _ := cmd.Flags().GetBool("force")
+
+			if checkOnly {
+				return checkForUpdates(verbose)
+			}
+
+			return performUpdate(verbose, force)
+		},
+	}
+	updateCmd.Flags().BoolP("check", "k", false, "Only check for updates without installing")
+	updateCmd.Flags().BoolP("force", "f", false, "Force update even if current version is latest")
+
 	// Retention command
 	var retentionCmd = &cobra.Command{
 		Use:   "retention",
@@ -421,6 +445,7 @@ Key features:
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(retentionCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(cleanCmd)
@@ -558,6 +583,289 @@ func runRetention(configPath string, info, apply, verbose bool) error {
 	}
 
 	return nil
+}
+
+// checkForUpdates checks for newer versions on GitHub
+func checkForUpdates(verbose bool) error {
+	if verbose {
+		utils.Info("🔍 Checking for updates on GitHub...")
+	} else {
+		fmt.Println("🔍 Checking for updates...")
+	}
+
+	// Get current version
+	currentVersion := Version
+	if strings.HasPrefix(currentVersion, "v") {
+		currentVersion = strings.TrimPrefix(currentVersion, "v")
+	}
+
+	// Parse current version
+	currentParts := strings.Split(currentVersion, ".")
+	if len(currentParts) < 2 {
+		return fmt.Errorf("invalid current version format: %s", currentVersion)
+	}
+
+	// Get latest version from GitHub API
+	latestVersion, err := getLatestGitHubVersion()
+	if err != nil {
+		return fmt.Errorf("error checking for updates: %w", err)
+	}
+
+	// Parse latest version
+	latestParts := strings.Split(latestVersion, ".")
+	if len(latestParts) < 2 {
+		return fmt.Errorf("invalid latest version format: %s", latestVersion)
+	}
+
+	// Compare versions
+	if isNewerVersion(latestParts, currentParts) {
+		fmt.Printf("🎉 New version available: %s (current: %s)\n", latestVersion, currentVersion)
+		fmt.Printf("📥 Run 'bcrdf update' to install the latest version\n")
+	} else {
+		fmt.Printf("✅ You are running the latest version: %s\n", currentVersion)
+	}
+
+	return nil
+}
+
+// performUpdate downloads and installs the latest version
+func performUpdate(verbose, force bool) error {
+	if verbose {
+		utils.Info("🚀 Starting update process...")
+	} else {
+		fmt.Println("🚀 Starting update...")
+	}
+
+	// Get current version
+	currentVersion := Version
+	if strings.HasPrefix(currentVersion, "v") {
+		currentVersion = strings.TrimPrefix(currentVersion, "v")
+	}
+
+	// Get latest version
+	latestVersion, err := getLatestGitHubVersion()
+	if err != nil {
+		return fmt.Errorf("error getting latest version: %w", err)
+	}
+
+	// Check if update is needed
+	if !force {
+		currentParts := strings.Split(currentVersion, ".")
+		latestParts := strings.Split(latestVersion, ".")
+
+		if !isNewerVersion(latestParts, currentParts) {
+			fmt.Printf("✅ You are already running the latest version: %s\n", currentVersion)
+			fmt.Printf("💡 Use --force to update anyway\n")
+			return nil
+		}
+	}
+
+	fmt.Printf("📥 Downloading version %s...\n", latestVersion)
+
+	// Download and install
+	if err := downloadAndInstallUpdate(latestVersion, verbose); err != nil {
+		return fmt.Errorf("error updating: %w", err)
+	}
+
+	fmt.Printf("🎉 Successfully updated to version %s!\n", latestVersion)
+	fmt.Printf("🔄 Please restart BCRDF to use the new version\n")
+
+	return nil
+}
+
+// getLatestGitHubVersion fetches the latest version from GitHub releases
+func getLatestGitHubVersion() (string, error) {
+	// GitHub API endpoint for releases
+	url := "https://api.github.com/repos/crdffrance/bcrdf/releases/latest"
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Make request
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("error fetching releases: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", fmt.Errorf("error parsing response: %w", err)
+	}
+
+	// Remove 'v' prefix if present
+	version := release.TagName
+	if strings.HasPrefix(version, "v") {
+		version = strings.TrimPrefix(version, "v")
+	}
+
+	return version, nil
+}
+
+// isNewerVersion compares two version strings
+func isNewerVersion(latest, current []string) bool {
+	maxLen := len(latest)
+	if len(current) > maxLen {
+		maxLen = len(current)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		latestPart := "0"
+		currentPart := "0"
+
+		if i < len(latest) {
+			latestPart = latest[i]
+		}
+		if i < len(current) {
+			currentPart = current[i]
+		}
+
+		// Convert to integers for comparison
+		latestNum, _ := strconv.Atoi(latestPart)
+		currentNum, _ := strconv.Atoi(currentPart)
+
+		if latestNum > currentNum {
+			return true
+		} else if latestNum < currentNum {
+			return false
+		}
+	}
+
+	return false
+}
+
+// downloadAndInstallUpdate downloads and installs the update
+func downloadAndInstallUpdate(version string, verbose bool) error {
+	// Determine platform and architecture
+	platform := runtime.GOOS
+	arch := runtime.GOARCH
+
+	// Map Go arch to GitHub release arch
+	archMap := map[string]string{
+		"amd64": "x64",
+		"arm64": "arm64",
+		"386":   "x86",
+	}
+
+	releaseArch, ok := archMap[arch]
+	if !ok {
+		return fmt.Errorf("unsupported architecture: %s", arch)
+	}
+
+	// Construct download URL
+	downloadURL := fmt.Sprintf("https://github.com/crdffrance/bcrdf/releases/download/v%s/bcrdf-%s-%s",
+		version, platform, releaseArch)
+
+	// Add extension for Windows
+	if platform == "windows" {
+		downloadURL += ".exe"
+	}
+
+	if verbose {
+		utils.Info("📥 Download URL: %s", downloadURL)
+	}
+
+	// Download file
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("error downloading update: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("download failed with status: %d", resp.StatusCode)
+	}
+
+	// Create temporary file
+	tempFile, err := os.CreateTemp("", "bcrdf-update-*")
+	if err != nil {
+		return fmt.Errorf("error creating temp file: %w", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Download with progress
+	fileSize := resp.ContentLength
+	if verbose {
+		utils.Info("📊 File size: %d bytes", fileSize)
+	}
+
+	// Copy with progress bar
+	bar := utils.NewProgressBar(fileSize)
+	_, err = io.Copy(tempFile, io.TeeReader(resp.Body, &progressWriter{bar: bar}))
+	if err != nil {
+		return fmt.Errorf("error downloading file: %w", err)
+	}
+	bar.Finish()
+
+	// Close temp file
+	tempFile.Close()
+
+	// Get current executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("error getting executable path: %w", err)
+	}
+
+	// Create backup of current executable
+	backupPath := execPath + ".backup"
+	if err := copyFile(execPath, backupPath); err != nil {
+		return fmt.Errorf("error creating backup: %w", err)
+	}
+
+	// Install new version
+	if err := copyFile(tempFile.Name(), execPath); err != nil {
+		// Restore backup on failure
+		copyFile(backupPath, execPath)
+		return fmt.Errorf("error installing update: %w", err)
+	}
+
+	// Make executable
+	if err := os.Chmod(execPath, 0755); err != nil {
+		return fmt.Errorf("error setting permissions: %w", err)
+	}
+
+	// Remove backup
+	os.Remove(backupPath)
+
+	return nil
+}
+
+// progressWriter implements io.Writer to update progress bar
+type progressWriter struct {
+	bar *utils.ProgressBar
+}
+
+func (pw *progressWriter) Write(p []byte) (n int, err error) {
+	pw.bar.Add(int64(len(p)))
+	return len(p), nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
 }
 
 func runHealth(configPath string, testRestore, verbose, fastMode bool) error {

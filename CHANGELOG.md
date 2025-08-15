@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2025-08-15
+
+### Added
+- **Automatic Update System**: New `update` command for checking and installing updates from GitHub releases
+- **GitHub Integration**: Automatic version checking via GitHub API
+- **Cross-Platform Updates**: Support for macOS, Linux, and Windows with automatic architecture detection
+- **Secure Update Process**: Automatic backup and rollback in case of update failure
+- **Progress Tracking**: Real-time progress bar during update downloads
+
+### Features
+- **Update Check**: `bcrdf update --check` to verify available updates
+- **Automatic Installation**: `bcrdf update` to download and install latest version
+- **Force Update**: `bcrdf update --force` to update even if already on latest version
+- **Platform Detection**: Automatic OS and architecture detection for correct binary selection
+- **Error Recovery**: Automatic restoration of previous version if update fails
+
+### Technical Details
+- GitHub API integration for version checking
+- Multi-platform binary download support
+- Secure file replacement with backup/restore
+- Progress bar integration for download tracking
+- Automatic permission management (0755)
+
 ## [2.5.0] - 2025-08-15
 
 ### Added
@@ -20,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Backup Process Enhancement**: Added cleanup step after file backup to ensure S3 storage consistency
 - **Error Handling**: Improved error handling for S3 operations with automatic cleanup on failures
-- **Version Update**: Bumped to version 2.5.0 for this critical fix release
+- **Version Update**: Bumped to version 2.6.0 for this critical fix release
 
 ### Technical Details
 - Implemented `cleanupUnreferencedObjects` in `internal/backup/manager.go`

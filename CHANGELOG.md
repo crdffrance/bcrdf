@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] - 2025-01-16
+
+### Fixed
+- **Update Command Version Detection**: Fixed critical issue where update command was downloading the same version when already on latest
+- **Version Comparison Logic**: Resolved bug preventing proper detection of current version vs latest version
+- **Update System Reliability**: Command now correctly identifies when no update is needed
+
+### Enhanced
+- **Update Command Consistency**: Both `update` and `update --check` now work consistently
+- **User Experience**: Clear messaging when already on latest version
+- **Error Prevention**: Eliminates unnecessary downloads of identical versions
+
+### Technical Details
+- Fixed version comparison logic in `isNewerVersion` function
+- Improved update command reliability and consistency
+- Enhanced user feedback for update operations
+
 ## [2.7.2] - 2025-01-16
 
 ### Fixed

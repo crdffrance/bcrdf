@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] - 2025-01-16
+
+### Fixed
+- **Version Comparison Bug**: Fixed critical issue where version comparison failed due to platform suffixes
+- **Update Command Reliability**: Resolved bug where update command downloaded same version repeatedly
+- **Platform Suffix Handling**: Remove platform suffixes (-linux-x64, -darwin-arm64) before version comparison
+
+### Enhanced
+- **Update Command Accuracy**: Both update and update --check now correctly detect when on latest version
+- **Version Detection**: Improved version parsing and comparison logic
+- **User Experience**: Eliminates unnecessary downloads of identical versions
+
+### Technical Details
+- Fixed version comparison by cleaning platform suffixes before comparison
+- Enhanced version parsing in both checkForUpdates and performUpdate functions
+- Improved reliability of update system across all platforms
+
 ## [2.7.3] - 2025-01-16
 
 ### Fixed

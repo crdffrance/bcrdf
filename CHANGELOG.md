@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.2] - 2025-01-16
+
+### Fixed
+- **Critical Update Command Bug**: Fixed missing update command implementation that was referenced but not defined
+- **Update System Reliability**: Resolved 'text file busy' errors during updates by properly implementing deferred update strategy
+- **Command Integration**: Added complete update command with --check, --force, and --auto-restart flags
+
+### Enhanced
+- **Update Command Functionality**: Command now properly detects when already on latest version
+- **Error Handling**: Improved error handling for update operations with proper version detection
+- **User Experience**: Users can now successfully check for updates and install them without errors
+
+### Technical Details
+- Added missing updateCmd definition in main.go
+- Integrated with existing update functions (checkForUpdates, performUpdate)
+- Fixed critical bug preventing update command from working
+- Enhanced update system reliability and user experience
+
 ## [2.7.1] - 2025-08-15
 
 ### Fixed

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -28,6 +29,16 @@ import (
 	"bcrdf/pkg/storage"
 	"bcrdf/pkg/utils"
 )
+
+// DeferredUpdateError indicates a successful deferred update
+type DeferredUpdateError struct {
+	ScriptPath string
+	Version    string
+}
+
+func (e *DeferredUpdateError) Error() string {
+	return fmt.Sprintf("update deferred to version %s - script created at %s", e.Version, e.ScriptPath)
+}
 
 var (
 	configFile string
@@ -301,24 +312,36 @@ Key features:
 	initCmd.Flags().BoolP("test", "t", false, "Test an existing configuration")
 	initCmd.Flags().StringP("storage", "s", "s3", "Storage type (s3, webdav)")
 
+	// Version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Show version information",
+		Long:  "Displays version information and optimization features",
+		Run: func(cmd *cobra.Command, args []string) {
+			showVersion()
+		},
+	}
+
 	// Update command
 	var updateCmd = &cobra.Command{
 		Use:   "update",
 		Short: "Check for and install updates",
-		Long:  "Checks for newer versions on GitHub and offers to download and install them",
+		Long:  "Checks for newer versions on GitHub and installs them automatically",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			checkOnly, _ := cmd.Flags().GetBool("check")
 			force, _ := cmd.Flags().GetBool("force")
+			autoRestart, _ := cmd.Flags().GetBool("auto-restart")
 
 			if checkOnly {
 				return checkForUpdates(verbose)
 			}
 
-			return performUpdate(verbose, force)
+			return performUpdate(verbose, force, autoRestart)
 		},
 	}
 	updateCmd.Flags().BoolP("check", "k", false, "Only check for updates without installing")
 	updateCmd.Flags().BoolP("force", "f", false, "Force update even if current version is latest")
+	updateCmd.Flags().BoolP("auto-restart", "r", false, "Automatically restart BCRDF after update")
 
 	// Retention command
 	var retentionCmd = &cobra.Command{
@@ -429,16 +452,6 @@ Key features:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			indexManager := index.NewManager(configFile)
 			return indexManager.ScanAllObjects(verbose)
-		},
-	}
-
-	// Version command
-	versionCmd := &cobra.Command{
-		Use:   "version",
-		Short: "Show version information",
-		Long:  "Displays version information and optimization features",
-		Run: func(cmd *cobra.Command, args []string) {
-			showVersion()
 		},
 	}
 
@@ -633,7 +646,7 @@ func checkForUpdates(verbose bool) error {
 }
 
 // performUpdate downloads and installs the latest version
-func performUpdate(verbose, force bool) error {
+func performUpdate(verbose, force, autoRestart bool) error {
 	if verbose {
 		utils.Info("🚀 Starting update process...")
 	} else {
@@ -667,12 +680,25 @@ func performUpdate(verbose, force bool) error {
 	fmt.Printf("📥 Downloading version %s...\n", latestVersion)
 
 	// Download and install
-	if err := downloadAndInstallUpdate(latestVersion, verbose); err != nil {
+	if err := downloadAndInstallUpdate(latestVersion, verbose, autoRestart); err != nil {
+		// Check if it's a deferred update (which is actually a success)
+		if deferredErr, ok := err.(*DeferredUpdateError); ok {
+			fmt.Printf("\n🎯 Update process completed successfully!\n")
+			fmt.Printf("📝 Deferred update script ready: %s\n", deferredErr.ScriptPath)
+			fmt.Printf("🔄 To complete the update, please follow the instructions above.\n")
+			return nil // No error, this is a successful deferred update
+		}
 		return fmt.Errorf("error updating: %w", err)
 	}
 
 	fmt.Printf("🎉 Successfully updated to version %s!\n", latestVersion)
-	fmt.Printf("🔄 Please restart BCRDF to use the new version\n")
+
+	if autoRestart {
+		fmt.Printf("🚀 Auto-restarting BCRDF with new version...\n")
+		return performAutoRestart()
+	} else {
+		fmt.Printf("🔄 Please restart BCRDF to use the new version\n")
+	}
 
 	return nil
 }
@@ -749,7 +775,7 @@ func isNewerVersion(latest, current []string) bool {
 }
 
 // downloadAndInstallUpdate downloads and installs the update
-func downloadAndInstallUpdate(version string, verbose bool) error {
+func downloadAndInstallUpdate(version string, verbose, autoRestart bool) error {
 	// Determine platform and architecture
 	platform := runtime.GOOS
 	arch := runtime.GOARCH
@@ -841,7 +867,13 @@ func downloadAndInstallUpdate(version string, verbose bool) error {
 
 	// Install new version
 	if err := copyFile(binaryPath, execPath); err != nil {
-		// Restore backup on failure
+		// Check if it's a "text file busy" error
+		if strings.Contains(err.Error(), "text file busy") || strings.Contains(err.Error(), "device or resource busy") {
+			// Binary is busy, implement deferred update strategy
+			return handleDeferredUpdate(binaryPath, backupPath, execPath, version, verbose)
+		}
+
+		// Other error, restore backup on failure
 		copyFile(backupPath, execPath)
 		return fmt.Errorf("error installing update: %w", err)
 	}
@@ -1139,4 +1171,175 @@ func runHealth(configPath string, testRestore, verbose, fastMode bool) error {
 
 	healthMgr.PrintReport(report, verbose)
 	return nil
+}
+
+// handleDeferredUpdate handles the case when the binary is busy
+func handleDeferredUpdate(binaryPath, backupPath, execPath, version string, verbose bool) error {
+	fmt.Printf("\n🔄 Binary is currently in use, implementing deferred update strategy...\n")
+
+	// Create a deferred update script
+	updateScript := createDeferredUpdateScript(binaryPath, backupPath, execPath, version)
+
+	// Make the script executable
+	if err := os.Chmod(updateScript, 0755); err != nil {
+		return fmt.Errorf("error making update script executable: %w", err)
+	}
+
+	fmt.Printf("📝 Deferred update script created: %s\n", updateScript)
+	fmt.Printf("🚀 To complete the update, please:\n")
+	fmt.Printf("   1. Exit BCRDF completely\n")
+	fmt.Printf("   2. Run: %s\n", updateScript)
+	fmt.Printf("   3. Restart BCRDF\n")
+
+	// Return a special error type that indicates deferred update success
+	// Return a special error type that indicates deferred update success
+	return &DeferredUpdateError{
+		ScriptPath: updateScript,
+		Version:    version,
+	}
+}
+
+// createDeferredUpdateScript creates a script to complete the update later
+func createDeferredUpdateScript(binaryPath, backupPath, execPath, version string) string {
+	// Create script content
+	scriptContent := fmt.Sprintf(`#!/bin/bash
+# BCRDF Deferred Update Script for version %s
+# This script will complete the update when BCRDF is not running
+
+echo "🚀 Completing BCRDF update to version %s..."
+
+# Wait a moment to ensure BCRDF is completely stopped
+sleep 2
+
+# Install the new version
+if cp "%s" "%s"; then
+    # Set permissions
+    chmod 755 "%s"
+    
+    # Clean up
+    rm -f "%s"
+    rm -f "%s"
+    
+    # Clean up the temporary extraction directory
+    tempDir=$(dirname "%s")
+    if [ -d "$tempDir" ]; then
+        rm -rf "$tempDir"
+    fi
+    
+    echo "✅ Update completed successfully!"
+    echo "🔄 You can now restart BCRDF"
+else
+    echo "❌ Update failed, restoring backup..."
+    cp "%s" "%s"
+    chmod 755 "%s"
+    echo "🔄 Backup restored, please try again later"
+fi
+`, version, version, binaryPath, execPath, execPath, binaryPath, backupPath, binaryPath, backupPath, execPath, execPath)
+
+	// Create script file
+	scriptPath := fmt.Sprintf("/tmp/bcrdf-update-%s.sh", version)
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		// Fallback to current directory if /tmp is not writable
+		scriptPath = fmt.Sprintf("./bcrdf-update-%s.sh", version)
+		os.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	}
+
+	return scriptPath
+}
+
+// performAutoRestart restarts BCRDF with the new version
+func performAutoRestart() error {
+	fmt.Printf("🔄 Preparing auto-restart...\n")
+
+	// Get current executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("error getting executable path: %w", err)
+	}
+
+	// Get current working directory
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting working directory: %w", err)
+	}
+
+	// Get current arguments (excluding the update command)
+	args := os.Args[1:]
+	// Remove update-related flags
+	var cleanArgs []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "update" || args[i] == "--auto-restart" || args[i] == "-r" {
+			continue
+		}
+		if strings.HasPrefix(args[i], "--") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			// Skip flag value
+			i++
+			continue
+		}
+		if strings.HasPrefix(args[i], "-") && len(args[i]) == 2 && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") && !strings.HasPrefix(args[i+1], "-") {
+			// Skip short flag value
+			i++
+			continue
+		}
+		cleanArgs = append(cleanArgs, args[i])
+	}
+
+	// Create restart script
+	restartScript := createRestartScript(execPath, workDir, cleanArgs)
+
+	// Make it executable
+	if err := os.Chmod(restartScript, 0755); err != nil {
+		return fmt.Errorf("error making restart script executable: %w", err)
+	}
+
+	fmt.Printf("🚀 Executing auto-restart...\n")
+
+	// Execute the restart script in background
+	cmd := exec.Command(restartScript)
+	cmd.Dir = workDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Start the restart process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("error starting auto-restart: %w", err)
+	}
+
+	// Exit current process (restart script will take over)
+	fmt.Printf("🔄 Restarting BCRDF with new version...\n")
+	os.Exit(0)
+
+	return nil
+}
+
+// createRestartScript creates a script to restart BCRDF
+func createRestartScript(execPath, workDir string, args []string) string {
+	// Create script content
+	scriptContent := fmt.Sprintf(`#!/bin/bash
+# BCRDF Auto-Restart Script
+# This script restarts BCRDF with the new version
+
+echo "🚀 Restarting BCRDF with new version..."
+
+# Change to working directory
+cd "%s"
+
+# Wait a moment for the old process to exit
+sleep 1
+
+# Start BCRDF with new version and original arguments
+exec "%s" %s
+
+echo "✅ BCRDF restarted successfully!"
+`, workDir, execPath, strings.Join(args, " "))
+
+	// Create script file
+	scriptPath := "/tmp/bcrdf-restart.sh"
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		// Fallback to current directory
+		scriptPath = "./bcrdf-restart.sh"
+		os.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	}
+
+	return scriptPath
 }

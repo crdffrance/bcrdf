@@ -615,6 +615,11 @@ func checkForUpdates(verbose bool) error {
 	if strings.HasPrefix(currentVersion, "v") {
 		currentVersion = strings.TrimPrefix(currentVersion, "v")
 	}
+	
+	// Remove platform suffix (e.g., -linux-x64, -darwin-arm64)
+	if idx := strings.Index(currentVersion, "-"); idx != -1 {
+		currentVersion = currentVersion[:idx]
+	}
 
 	// Parse current version
 	currentParts := strings.Split(currentVersion, ".")
@@ -657,6 +662,11 @@ func performUpdate(verbose, force, autoRestart bool) error {
 	currentVersion := Version
 	if strings.HasPrefix(currentVersion, "v") {
 		currentVersion = strings.TrimPrefix(currentVersion, "v")
+	}
+	
+	// Remove platform suffix (e.g., -linux-x64, -darwin-arm64)
+	if idx := strings.Index(currentVersion, "-"); idx != -1 {
+		currentVersion = currentVersion[:idx]
 	}
 
 	// Get latest version

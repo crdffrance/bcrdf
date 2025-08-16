@@ -771,6 +771,7 @@ func isNewerVersion(latest, current []string) bool {
 		}
 	}
 
+	// Versions are equal
 	return false
 }
 
